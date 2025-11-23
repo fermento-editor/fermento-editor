@@ -1,0 +1,8 @@
+BACKED
+cd \fermento-editor\fermento-app\server
+npm start
+
+FRONTED
+C:
+cd \fermento-editor\fermento-app
+npm run dev
