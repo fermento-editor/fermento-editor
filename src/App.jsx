@@ -1,5 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./App.css";
+
+// Base URL API: locale vs online
+const API_BASE =
+  window.location.hostname === "localhost"
+    ? "http://localhost:3001"
+    : "https://fermento-editor.onrender.com";
 
 // Conta parole e caratteri ignorando i tag HTML
 function getStats(html) {
@@ -42,26 +48,9 @@ function splitHtmlIntoChunks(html, maxChars = 40000) {
   return chunks;
 }
 
-// Estrae solo il blocco della "Raccomandazione editoriale" dalla valutazione completa
-function extractRecommendation(html) {
-  if (!html || typeof html !== "string") return "";
-
-  const lower = html.toLowerCase();
-  const marker = "<h3>8. raccomandazione editoriale</h3>";
-
-  const idx = lower.indexOf(marker);
-  if (idx === -1) return "";
-
-  const after = html.slice(idx + marker.length);
-  const nextIdx = after.toLowerCase().indexOf("<h3>");
-
-  const block = nextIdx === -1 ? after : after.slice(0, nextIdx);
-  return block.trim();
-}
-
 function App() {
   const [originalHtml, setOriginalHtml] = useState(""); // HTML importato
-  const [workedHtml, setWorkedHtml] = useState(""); // HTML lavorato / valutazione
+  const [workedHtml, setWorkedHtml] = useState(""); // HTML lavorato
   const [status, setStatus] = useState("Pronto.");
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [lastAiMode, setLastAiMode] = useState(null);
@@ -73,26 +62,49 @@ function App() {
   const [projectAuthor, setProjectAuthor] = useState("");
   const [translationMode, setTranslationMode] = useState("none");
 
-  // Valutazione manoscritto salvata (HTML completo)
-  const [manuscriptEvaluation, setManuscriptEvaluation] = useState("");
-  // Estratto della sola raccomandazione editoriale
-  const [recommendationSummary, setRecommendationSummary] = useState("");
+  // Stato per valutazioni salvate
+  const [evaluations, setEvaluations] = useState([]);
+  const [evalLoading, setEvalLoading] = useState(false);
+  const [evalError, setEvalError] = useState("");
+  const [loadingEvaluationId, setLoadingEvaluationId] = useState(null);
 
-  // Elenco progetti salvati
-  const [savedProjects, setSavedProjects] = useState([]);
-  const [showProjects, setShowProjects] = useState(false);
+  // Carica valutazioni manoscritti salvate da backend
+  useEffect(() => {
+    const fetchEvaluations = async () => {
+      try {
+        setEvalLoading(true);
+        setEvalError("");
 
-  // Upload DOCX o PDF → backend → HTML
+        const response = await fetch(`${API_BASE}/api/evaluations`);
+        if (!response.ok) {
+          throw new Error("Risposta non valida dal server valutazioni");
+        }
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.error || "Errore nel caricamento valutazioni");
+        }
+        setEvaluations(data.evaluations || []);
+      } catch (err) {
+        console.error("Errore nel recupero delle valutazioni:", err);
+        setEvalError(
+          "Impossibile recuperare le valutazioni salvate. Controlla la configurazione del server."
+        );
+      } finally {
+        setEvalLoading(false);
+      }
+    };
+
+    fetchEvaluations();
+  }, []);
+
+  // Upload DOCX/PDF → backend → HTML (con formattazione base)
   const handleDocxUpload = async (event) => {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
 
     const name = file.name.toLowerCase();
-    const isDocx = name.endsWith(".docx");
-    const isPdf = name.endsWith(".pdf");
-
-    if (!isDocx && !isPdf) {
-      alert("Puoi caricare solo file Word (.docx) o PDF (.pdf).");
+    if (!name.endsWith(".docx") && !name.endsWith(".pdf")) {
+      alert("Puoi caricare solo file .docx (Word) o .pdf.");
       event.target.value = "";
       return;
     }
@@ -104,7 +116,7 @@ function App() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch("http://localhost:3001/api/upload-docx", {
+      const response = await fetch(`${API_BASE}/api/upload-docx`, {
         method: "POST",
         body: formData,
       });
@@ -123,10 +135,8 @@ function App() {
 
       setOriginalHtml(data.text || "");
       setWorkedHtml("");
-      setManuscriptEvaluation("");
-      setRecommendationSummary("");
       setStatus(
-        `File caricato e testo importato correttamente (${file.name}). Ora puoi fare valutazione, correzione o editing.`
+        `File caricato e testo importato correttamente (${file.name}).`
       );
     } catch (err) {
       console.error(err);
@@ -138,110 +148,19 @@ function App() {
     }
   };
 
-  // Carica valutazione salvata per Titolo + Autore
-  const loadEvaluationFor = async (title, author) => {
-    const trimmedTitle = (title || "").trim();
-    const trimmedAuthor = (author || "").trim();
-
-    if (!trimmedTitle && !trimmedAuthor) {
-      alert(
-        "Per caricare una valutazione salvata indica almeno il titolo progetto (meglio titolo + autore)."
-      );
-      return;
-    }
-
-    try {
-      setStatus("Ricerca valutazione salvata per questo progetto...");
-      const response = await fetch(
-        "http://localhost:3001/api/load-evaluation",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            projectTitle: trimmedTitle,
-            projectAuthor: trimmedAuthor,
-          }),
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        const msg =
-          data && data.error
-            ? data.error
-            : "Nessuna valutazione trovata per questo progetto.";
-        setStatus(msg);
-        alert(msg);
-        return;
-      }
-
-      const evalHtml = data.evaluationHtml || "";
-      setManuscriptEvaluation(evalHtml);
-      setWorkedHtml(evalHtml);
-      setRecommendationSummary(extractRecommendation(evalHtml));
-      setStatus(
-        "Valutazione manoscritto caricata dal salvataggio per questo progetto."
-      );
-    } catch (err) {
-      console.error(err);
-      setStatus("Errore nel caricamento della valutazione: " + err.message);
-      alert("Errore nel caricamento della valutazione: " + err.message);
-    }
-  };
-
-  // Pulsante "Carica valutazione salvata"
-  const handleLoadEvaluation = async () => {
-    await loadEvaluationFor(projectTitle, projectAuthor);
-  };
-
-  // Elenco progetti salvati
-  const handleToggleProjects = async () => {
-    if (showProjects) {
-      setShowProjects(false);
-      return;
-    }
-
-    try {
-      setStatus("Caricamento elenco progetti salvati...");
-      const response = await fetch("http://localhost:3001/api/projects");
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        const msg =
-          data && data.error
-            ? data.error
-            : "Errore nel caricamento dell'elenco progetti.";
-        setStatus(msg);
-        alert(msg);
-        return;
-      }
-
-      setSavedProjects(data.projects || []);
-      setShowProjects(true);
-      setStatus("Progetti salvati caricati.");
-    } catch (err) {
-      console.error(err);
-      setStatus("Errore nel caricamento dei progetti: " + err.message);
-      alert("Errore nel caricamento dei progetti: " + err.message);
-    }
-  };
-
-  // Chiamata AI (correzione / editing / traduzioni / valutazione)
+  // Chiamata AI (correzione testo / editing / traduzioni / valutazione)
   const callAi = async (mode) => {
     if (!originalHtml.trim()) {
       setStatus(
-        "Devi prima importare un DOCX o un PDF per avere del testo di partenza."
+        "Devi prima importare un DOCX/PDF o avere del testo di partenza (HTML)."
       );
-      alert("Importa un DOCX o un PDF prima di usare l'AI.");
+      alert("Importa un DOCX o PDF prima di usare l'AI.");
       return;
     }
 
     if (!mode || mode === "none") {
       alert(
-        "Seleziona prima una modalità valida (valutazione, correzione, editing o traduzione)."
+        "Seleziona prima una modalità valida (correzione testo, editing, traduzione o valutazione manoscritto)."
       );
       return;
     }
@@ -266,27 +185,17 @@ function App() {
       setLastAiMode(mode);
       setStatus(`Invio richiesta AI in modalità: ${mode}...`);
 
-      const body = {
-        text: originalHtml,
-        mode,
-        projectTitle: projectTitle.trim(),
-        projectAuthor: projectAuthor.trim(),
-      };
-
-      // Se siamo in editing e c'è una valutazione salvata, la passiamo come contesto
-      if (
-        (mode === "editing-profondo" || mode === "editing") &&
-        manuscriptEvaluation.trim()
-      ) {
-        body.editorialContext = manuscriptEvaluation;
-      }
-
-      const response = await fetch("http://localhost:3001/api/ai", {
+      const response = await fetch(`${API_BASE}/api/ai`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          text: originalHtml, // HTML
+          mode,
+          projectTitle,
+          projectAuthor,
+        }),
       });
 
       if (!response.ok) {
@@ -299,21 +208,29 @@ function App() {
         throw new Error(data.error || "Errore generico AI");
       }
 
-      const result = data.result || "";
+      setWorkedHtml(data.result || "");
+      setStatus("Testo aggiornato con la risposta AI.");
 
-      // Se è una valutazione manoscritto, salviamo anche nello stato dedicato
+      // Se abbiamo appena fatto una valutazione manoscritto, ricarichiamo l'elenco
       if (mode === "valutazione-manoscritto") {
-        setManuscriptEvaluation(result);
-        setRecommendationSummary(extractRecommendation(result));
-        setStatus(
-          "Valutazione manoscritto completata e salvata per questo progetto. Verrà usata come contesto per l'editing libro intero."
-        );
-      } else {
-        setStatus("Testo aggiornato con la risposta AI.");
+        try {
+          setEvalLoading(true);
+          const resEval = await fetch(`${API_BASE}/api/evaluations`);
+          if (resEval.ok) {
+            const evalData = await resEval.json();
+            if (evalData.success) {
+              setEvaluations(evalData.evaluations || []);
+            }
+          }
+        } catch (err) {
+          console.error(
+            "Errore aggiornamento elenco valutazioni dopo valutazione:",
+            err
+          );
+        } finally {
+          setEvalLoading(false);
+        }
       }
-
-      // Mostriamo comunque il risultato nella colonna destra
-      setWorkedHtml(result);
     } catch (err) {
       console.error(err);
       setStatus(
@@ -332,7 +249,7 @@ function App() {
   const handleBookCorrection = async () => {
     if (!originalHtml.trim()) {
       alert(
-        "Inserisci prima il libro (o un testo lungo) nella colonna di sinistra (importando il DOCX o il PDF)."
+        "Inserisci prima il libro (o un testo lungo) nella colonna di sinistra (importando il DOCX/PDF)."
       );
       return;
     }
@@ -369,7 +286,7 @@ function App() {
         const blocco = chunks[i];
         setBookProgress(`Blocco ${i + 1} di ${chunks.length}`);
 
-        const response = await fetch("http://localhost:3001/api/ai", {
+        const response = await fetch(`${API_BASE}/api/ai`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -377,6 +294,8 @@ function App() {
           body: JSON.stringify({
             text: blocco,
             mode: "correzione-soft",
+            projectTitle,
+            projectAuthor,
           }),
         });
 
@@ -415,11 +334,11 @@ function App() {
     }
   };
 
-  // Editing libro intero (a blocchi) – EDITING, con raccomandazione editoriale se presente
+  // Editing libro intero (a blocchi) – EDITING
   const handleBookEditing = async () => {
     if (!originalHtml.trim()) {
       alert(
-        "Inserisci prima il libro (o un testo lungo) nella colonna di sinistra (importando il DOCX o il PDF)."
+        "Inserisci prima il libro (o un testo lungo) nella colonna di sinistra (importando il DOCX/PDF)."
       );
       return;
     }
@@ -438,11 +357,7 @@ function App() {
 
     const conferma = window.confirm(
       `Il libro sarà diviso in ${chunks.length} blocchi più grandi (circa 40.000 caratteri ciascuno) per l'EDITING.\n` +
-        "Questo userà diverse chiamate alle API (e quindi credito).\n\n" +
-        (manuscriptEvaluation.trim()
-          ? "È presente una VALUTAZIONE MANOSCRITTO salvata: verrà usata come contesto per rendere l'editing coerente con la raccomandazione editoriale.\n\n"
-          : "Non è presente una valutazione manoscritto salvata: l'editing sarà neutro, senza contesto editoriale aggiuntivo.\n\n") +
-        "Vuoi procedere?"
+        "Questo userà diverse chiamate alle API (e quindi credito). Vuoi procedere?"
     );
     if (!conferma) return;
 
@@ -460,23 +375,17 @@ function App() {
         const blocco = chunks[i];
         setBookProgress(`Blocco ${i + 1} di ${chunks.length}`);
 
-        const body = {
-          text: blocco,
-          mode: "editing-profondo",
-          projectTitle: projectTitle.trim(),
-          projectAuthor: projectAuthor.trim(),
-        };
-
-        if (manuscriptEvaluation.trim()) {
-          body.editorialContext = manuscriptEvaluation;
-        }
-
-        const response = await fetch("http://localhost:3001/api/ai", {
+        const response = await fetch(`${API_BASE}/api/ai`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(body),
+          body: JSON.stringify({
+            text: blocco,
+            mode: "editing-profondo",
+            projectTitle,
+            projectAuthor,
+          }),
         });
 
         if (!response.ok) {
@@ -501,9 +410,7 @@ function App() {
 
       const finalHtml = results.join("");
       setWorkedHtml(finalHtml);
-      setStatus(
-        "Libro editato completamente. Testo completo nella colonna destra."
-      );
+      setStatus("Libro editato completamente. Testo completo nella colonna destra.");
       setBookProgress("");
     } catch (err) {
       console.error(err);
@@ -516,7 +423,7 @@ function App() {
     }
   };
 
-  // Download versione lavorata in .docx (qualsiasi contenuto nella colonna destra)
+  // Download versione lavorata in .docx
   const handleDownloadWorkedDocx = async () => {
     if (!workedHtml || workedHtml.trim() === "") {
       alert("Non c'è ancora nessun testo lavorato da scaricare.");
@@ -542,7 +449,7 @@ function App() {
 
       const filename = `${baseName}.docx`;
 
-      const response = await fetch("http://localhost:3001/api/download-docx", {
+      const response = await fetch(`${API_BASE}/api/download-docx`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -576,134 +483,34 @@ function App() {
     }
   };
 
-  // Download della sola valutazione in DOCX
-  const handleDownloadEvaluationDocx = async () => {
-    if (!manuscriptEvaluation.trim()) {
-      alert(
-        "Non è presente alcuna valutazione manoscritto da scaricare. Esegui prima una valutazione o caricane una salvata."
-      );
-      return;
-    }
-
+  // Carica una valutazione salvata nella colonna destra
+  const handleOpenEvaluation = async (id) => {
     try {
-      setStatus("Generazione DOCX della valutazione in corso...");
+      setLoadingEvaluationId(id);
+      setStatus("Caricamento valutazione in corso...");
 
-      let baseName = "valutazione-manoscritto";
-      const cleanTitle = projectTitle
-        .trim()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "_");
-      const cleanAuthor = projectAuthor
-        .trim()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "_");
-
-      if (cleanTitle || cleanAuthor) {
-        baseName = `${cleanTitle || "Progetto"}-${cleanAuthor || "Autore"}-valutazione`;
-      }
-
-      const filename = `${baseName}.docx`;
-
-      const response = await fetch("http://localhost:3001/api/download-docx", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          correctedHtml: manuscriptEvaluation,
-          filename,
-        }),
-      });
-
+      const response = await fetch(`${API_BASE}/api/evaluations/${id}`);
       if (!response.ok) {
-        throw new Error("Errore nella risposta del server (DOCX valutazione).");
+        throw new Error("Errore nel recupero della valutazione salvata");
+      }
+      const data = await response.json();
+      if (!data.success || !data.evaluation) {
+        throw new Error("Valutazione non trovata nel server");
       }
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-
-      setStatus("DOCX della valutazione scaricato correttamente.");
+      const ev = data.evaluation;
+      setWorkedHtml(ev.evaluationHtml || "");
+      setStatus(
+        `Valutazione caricata: ${ev.title || "Senza titolo"}${
+          ev.author ? " – " + ev.author : ""
+        }.`
+      );
     } catch (err) {
-      console.error("Errore download DOCX valutazione:", err);
-      setStatus("Errore durante il download del DOCX valutazione: " + err.message);
-      alert(
-        "Si è verificato un errore durante il download del DOCX della valutazione."
-      );
-    }
-  };
-
-  // Download della sola valutazione in PDF (testo semplice)
-  const handleDownloadEvaluationPdf = async () => {
-    if (!manuscriptEvaluation.trim()) {
-      alert(
-        "Non è presente alcuna valutazione manoscritto da scaricare. Esegui prima una valutazione o caricane una salvata."
-      );
-      return;
-    }
-
-    try {
-      setStatus("Generazione PDF della valutazione in corso...");
-
-      let baseName = "valutazione-manoscritto";
-      const cleanTitle = projectTitle
-        .trim()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "_");
-      const cleanAuthor = projectAuthor
-        .trim()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "_");
-
-      if (cleanTitle || cleanAuthor) {
-        baseName = `${cleanTitle || "Progetto"}-${cleanAuthor || "Autore"}-valutazione`;
-      }
-
-      const filename = `${baseName}.pdf`;
-
-      const response = await fetch(
-        "http://localhost:3001/api/download-eval-pdf",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            evaluationHtml: manuscriptEvaluation,
-            filename,
-          }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Errore nella risposta del server (PDF valutazione).");
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-
-      setStatus("PDF della valutazione scaricato correttamente.");
-    } catch (err) {
-      console.error("Errore download PDF valutazione:", err);
-      setStatus("Errore durante il download del PDF valutazione: " + err.message);
-      alert(
-        "Si è verificato un errore durante il download del PDF della valutazione."
-      );
+      console.error("Errore apertura valutazione:", err);
+      setStatus("Errore nel caricamento della valutazione: " + err.message);
+      alert("Errore nel caricamento della valutazione: " + err.message);
+    } finally {
+      setLoadingEvaluationId(null);
     }
   };
 
@@ -727,8 +534,6 @@ function App() {
           borderBottom: "1px solid #e0d5c5",
           backgroundColor: "rgba(255,255,255,0.9)",
           padding: "8px 0",
-          position: "relative",
-          zIndex: 2,
         }}
       >
         <div
@@ -736,9 +541,8 @@ function App() {
             maxWidth: "1100px",
             margin: "0 auto",
             display: "flex",
-            alignItems: "flex-start",
+            alignItems: "center",
             justifyContent: "space-between",
-            gap: "16px",
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -768,15 +572,7 @@ function App() {
             </div>
           </div>
 
-          <div
-            style={{
-              fontSize: "11px",
-              color: "#666",
-              textAlign: "right",
-              position: "relative",
-              flexShrink: 0,
-            }}
-          >
+          <div style={{ fontSize: "11px", color: "#666", textAlign: "right" }}>
             <div style={{ marginBottom: "4px" }}>
               Progetto:{" "}
               <input
@@ -789,12 +585,11 @@ function App() {
                   padding: "2px 4px",
                   borderRadius: "4px",
                   border: "1px solid #e0d5c5",
-                  width: "200px",
-                  marginBottom: "2px",
+                  width: "160px",
                 }}
               />
             </div>
-            <div style={{ marginBottom: "4px" }}>
+            <div>
               Autore:{" "}
               <input
                 type="text"
@@ -806,142 +601,10 @@ function App() {
                   padding: "2px 4px",
                   borderRadius: "4px",
                   border: "1px solid #e0d5c5",
-                  width: "200px",
+                  width: "160px",
                 }}
               />
             </div>
-
-            <div
-              style={{
-                display: "flex",
-                gap: "4px",
-                justifyContent: "flex-end",
-                marginTop: "4px",
-              }}
-            >
-              <button
-                onClick={handleLoadEvaluation}
-                style={{
-                  padding: "3px 6px",
-                  borderRadius: "4px",
-                  border: "1px solid #2980b9",
-                  backgroundColor: manuscriptEvaluation.trim()
-                    ? "#2980b9"
-                    : "#ffffff",
-                  color: manuscriptEvaluation.trim() ? "#ffffff" : "#2980b9",
-                  fontSize: "10px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                }}
-              >
-                {manuscriptEvaluation.trim()
-                  ? "Ricarica valutazione salvata"
-                  : "Carica valutazione salvata"}
-              </button>
-
-              <button
-                onClick={handleToggleProjects}
-                style={{
-                  padding: "3px 6px",
-                  borderRadius: "4px",
-                  border: "1px solid #7f8c8d",
-                  backgroundColor: showProjects ? "#7f8c8d" : "#ffffff",
-                  color: showProjects ? "#ffffff" : "#7f8c8d",
-                  fontSize: "10px",
-                  fontWeight: "600",
-                  cursor: "pointer",
-                }}
-              >
-                Progetti salvati
-              </button>
-            </div>
-
-            {/* PANNELLO ELENCO PROGETTI */}
-            {showProjects && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "70px",
-                  right: 0,
-                  width: "260px",
-                  maxHeight: "260px",
-                  overflowY: "auto",
-                  backgroundColor: "#ffffff",
-                  border: "1px solid #e0d5c5",
-                  borderRadius: "8px",
-                  boxShadow: "0 4px 10px rgba(0,0,0,0.08)",
-                  padding: "8px",
-                  zIndex: 10,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: "600",
-                    marginBottom: "4px",
-                    color: "#2c3e50",
-                  }}
-                >
-                  Progetti con valutazione salvata
-                </div>
-                {savedProjects.length === 0 ? (
-                  <div style={{ fontSize: "10px", color: "#999" }}>
-                    Nessun progetto salvato al momento.
-                  </div>
-                ) : (
-                  savedProjects.map((p, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        padding: "4px 6px",
-                        borderRadius: "4px",
-                        borderBottom:
-                          idx === savedProjects.length - 1
-                            ? "none"
-                            : "1px solid #f0e6d8",
-                        cursor: "pointer",
-                        textAlign: "left",
-                      }}
-                      onClick={() => {
-                        setProjectTitle(p.title || "");
-                        setProjectAuthor(p.author || "");
-                        setShowProjects(false);
-                        loadEvaluationFor(p.title, p.author);
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: "11px",
-                          fontWeight: "600",
-                          color: "#2c3e50",
-                        }}
-                      >
-                        {p.title || "(senza titolo)"}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "10px",
-                          color: "#7f8c8d",
-                        }}
-                      >
-                        {p.author || "Autore sconosciuto"}
-                      </div>
-                      {p.updatedAt && (
-                        <div
-                          style={{
-                            fontSize: "10px",
-                            color: "#b0a79b",
-                          }}
-                        >
-                          Ultimo aggiornamento:{" "}
-                          {new Date(p.updatedAt).toLocaleString("it-IT")}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
           </div>
         </div>
       </header>
@@ -962,7 +625,6 @@ function App() {
             gap: "8px",
             padding: "8px 0",
             fontSize: "13px",
-            flexWrap: "wrap",
           }}
         >
           {/* input file nascosto */}
@@ -1005,7 +667,7 @@ function App() {
             Tipo intervento:
           </span>
 
-          {/* VALUTAZIONE MANOSCRITTO */}
+          {/* VALUTAZIONE MANOSCRITTO (PRIMA) */}
           <button
             onClick={() => callAi("valutazione-manoscritto")}
             disabled={isAiLoading || isBookProcessing}
@@ -1049,7 +711,7 @@ function App() {
             }}
           >
             {isAiLoading && lastAiMode === "correzione-soft"
-              ? "AI: correzione..."
+              ? "AI: correzione testo..."
               : "Correzione testo"}
           </button>
 
@@ -1116,9 +778,7 @@ function App() {
               cursor:
                 isAiLoading || isBookProcessing ? "default" : "pointer",
               opacity:
-                isBookProcessing && lastAiMode === "editing-libro"
-                  ? 0.8
-                  : 1,
+                isBookProcessing && lastAiMode === "editing-libro" ? 0.8 : 1,
             }}
           >
             {isBookProcessing && lastAiMode === "editing-libro"
@@ -1126,7 +786,7 @@ function App() {
               : "Editing libro intero"}
           </button>
 
-          <div style={{ flex: 1, minWidth: "8px" }} />
+          <div style={{ flex: 1 }} />
 
           {/* Traduzioni */}
           <select
@@ -1179,11 +839,11 @@ function App() {
               : "Traduzione"}
           </button>
 
-          {/* DOWNLOAD DOCX (testo lavorato) */}
+          {/* DOWNLOAD DOCX */}
           <button
             onClick={handleDownloadWorkedDocx}
             style={{
-              padding: "6px 10px",
+              padding: "6px 14px",
               borderRadius: "6px",
               backgroundColor: "#ffffff",
               color: "#2c3e50",
@@ -1194,43 +854,6 @@ function App() {
             }}
           >
             Scarica versione lavorata (.docx)
-          </button>
-
-          {/* DOWNLOAD valutazione DOCX/PDF */}
-          <button
-            onClick={handleDownloadEvaluationDocx}
-            style={{
-              padding: "6px 10px",
-              borderRadius: "6px",
-              backgroundColor: manuscriptEvaluation.trim()
-                ? "#ffffff"
-                : "#f8f1ea",
-              color: "#8e44ad",
-              border: "1px solid #8e44ad",
-              fontSize: "11px",
-              fontWeight: "600",
-              cursor: "pointer",
-            }}
-          >
-            Valutazione (.docx)
-          </button>
-
-          <button
-            onClick={handleDownloadEvaluationPdf}
-            style={{
-              padding: "6px 10px",
-              borderRadius: "6px",
-              backgroundColor: manuscriptEvaluation.trim()
-                ? "#ffffff"
-                : "#f8f1ea",
-              color: "#c0392b",
-              border: "1px solid #c0392b",
-              fontSize: "11px",
-              fontWeight: "600",
-              cursor: "pointer",
-            }}
-          >
-            Valutazione (.pdf)
           </button>
         </div>
       </div>
@@ -1274,7 +897,7 @@ function App() {
                 Testo originale
               </h2>
               <span style={{ fontSize: "10px", color: "#777" }}>
-                Vista formattata (da DOCX/PDF)
+                Vista formattata (dal file importato)
               </span>
             </div>
 
@@ -1307,12 +930,12 @@ function App() {
               dangerouslySetInnerHTML={{
                 __html: originalHtml
                   ? originalHtml
-                  : "<p style='color:#aaa'>Importa un DOCX o un PDF con il pulsante in alto.</p>",
+                  : "<p style='color:#aaa'>Importa un DOCX o PDF con il pulsante in alto.</p>",
               }}
             />
           </section>
 
-          {/* LAVORATO / VALUTAZIONE */}
+          {/* LAVORATO FORMATTATO */}
           <section
             style={{
               display: "flex",
@@ -1320,39 +943,6 @@ function App() {
               height: "100%",
             }}
           >
-            {/* Riquadro Raccomandazione editoriale */}
-            {recommendationSummary && (
-              <div
-                style={{
-                  border: "1px solid #e0d5c5",
-                  borderRadius: "8px",
-                  padding: "8px",
-                  marginBottom: "8px",
-                  backgroundColor: "#fffaf3",
-                  fontSize: "11px",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: "11px",
-                    fontWeight: "600",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                    color: "#8e44ad",
-                    marginBottom: "4px",
-                  }}
-                >
-                  Raccomandazione editoriale (estratto)
-                </div>
-                <div
-                  style={{ fontSize: "11px", color: "#444", lineHeight: 1.4 }}
-                  dangerouslySetInnerHTML={{
-                    __html: recommendationSummary,
-                  }}
-                />
-              </div>
-            )}
-
             <div
               style={{
                 display: "flex",
@@ -1368,7 +958,7 @@ function App() {
                   letterSpacing: "0.1em",
                 }}
               >
-                Versione lavorata / valutazione
+                Versione lavorata
               </h2>
               <span style={{ fontSize: "10px", color: "#777" }}>
                 Risultato AI (vista formattata)
@@ -1386,11 +976,6 @@ function App() {
               <span style={{ fontWeight: "600" }}>{workedStats.words}</span>{" "}
               · Caratteri:{" "}
               <span style={{ fontWeight: "600" }}>{workedStats.chars}</span>
-              {manuscriptEvaluation.trim() && (
-                <span style={{ marginLeft: "8px", color: "#2c3e50" }}>
-                  • Valutazione manoscritto salvata
-                </span>
-              )}
             </div>
 
             <div
@@ -1409,10 +994,123 @@ function App() {
               dangerouslySetInnerHTML={{
                 __html: workedHtml
                   ? workedHtml
-                  : "<p style='color:#aaa'>Qui comparirà il testo dopo correzione / editing / traduzione o la valutazione del manoscritto.</p>",
+                  : "<p style='color:#aaa'>Qui comparirà il testo dopo correzione / editing / traduzione / valutazione.</p>",
               }}
             />
           </section>
+        </div>
+
+        {/* SEZIONE VALUTAZIONI SALVATE */}
+        <div
+          style={{
+            maxWidth: "1100px",
+            margin: "0 auto",
+            padding: "8px 0 16px 0",
+            borderTop: "1px solid #e0d5c5",
+          }}
+        >
+          <h3
+            style={{
+              fontSize: "12px",
+              fontWeight: "600",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              marginBottom: "8px",
+            }}
+          >
+            Valutazioni manoscritti salvate
+          </h3>
+
+          {evalLoading ? (
+            <p style={{ fontSize: "11px", color: "#777" }}>
+              Caricamento valutazioni in corso...
+            </p>
+          ) : evalError ? (
+            <p style={{ fontSize: "11px", color: "#b71c1c" }}>{evalError}</p>
+          ) : evaluations.length === 0 ? (
+            <p style={{ fontSize: "11px", color: "#777" }}>
+              Nessuna valutazione salvata o server non configurato per
+              restituirle.
+            </p>
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "8px",
+              }}
+            >
+              {evaluations.map((ev) => (
+                <div
+                  key={ev.id}
+                  style={{
+                    border: "1px solid #e0d5c5",
+                    borderRadius: "6px",
+                    padding: "8px",
+                    backgroundColor: "#fff",
+                    fontSize: "11px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      marginBottom: "4px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <strong>{ev.title || "Senza titolo"}</strong>
+                      {ev.author ? (
+                        <span style={{ marginLeft: "4px", color: "#555" }}>
+                          – {ev.author}
+                        </span>
+                      ) : null}
+                      <div
+                        style={{
+                          color: "#999",
+                          fontSize: "10px",
+                          marginTop: "2px",
+                        }}
+                      >
+                        {ev.createdAt
+                          ? new Date(ev.createdAt).toLocaleString()
+                          : ""}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleOpenEvaluation(ev.id)}
+                      disabled={loadingEvaluationId === ev.id}
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: "4px",
+                        border: "1px solid #2980b9",
+                        backgroundColor:
+                          loadingEvaluationId === ev.id ? "#ecf6fc" : "#ffffff",
+                        color: "#2980b9",
+                        fontSize: "10px",
+                        fontWeight: "600",
+                        cursor:
+                          loadingEvaluationId === ev.id ? "default" : "pointer",
+                      }}
+                    >
+                      {loadingEvaluationId === ev.id
+                        ? "Apro..."
+                        : "Apri valutazione"}
+                    </button>
+                  </div>
+                  {ev.recommendationSummary && (
+                    <div style={{ color: "#555", marginTop: "4px" }}>
+                      <span style={{ fontWeight: "600" }}>
+                        Raccomandazione:
+                      </span>{" "}
+                      {ev.recommendationSummary}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </main>
 
@@ -1430,14 +1128,21 @@ function App() {
             margin: "0 auto",
             fontSize: "11px",
             color: "#666",
+            display: "flex",
+            justifyContent: "space-between",
           }}
         >
-          <strong>Stato:</strong> {status}
-          {bookProgress && (
-            <span style={{ marginLeft: "8px" }}>
-              · <strong>Avanzamento libro:</strong> {bookProgress}
-            </span>
-          )}
+          <div>
+            <strong>Stato:</strong> {status}
+            {bookProgress && (
+              <span style={{ marginLeft: "8px" }}>
+                · <strong>Avanzamento libro:</strong> {bookProgress}
+              </span>
+            )}
+          </div>
+          <div>
+            <strong>API:</strong> {API_BASE}
+          </div>
         </div>
       </footer>
     </div>
