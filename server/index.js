@@ -11,9 +11,6 @@ import { fileURLToPath } from "url";
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const app = express();
 const port = process.env.PORT || 3001;
 const upload = multer({ storage: multer.memoryStorage() });
@@ -26,71 +23,106 @@ app.use(cors());
 app.use(express.json({ limit: "15mb" }));
 
 // =========================
-//  FILE VALUTAZIONI
+//  PATH & FILE HELPERS
 // =========================
-const EVAL_FILE = path.join(__dirname, "evaluations.json");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-function loadEvaluations() {
+const DATA_DIR = path.join(__dirname, "data");
+const EVALS_FILE = path.join(DATA_DIR, "evaluations.json");
+
+// Assicura che esista data/evaluations.json come array []
+async function ensureEvalFile() {
   try {
-    if (!fs.existsSync(EVAL_FILE)) return [];
-    const raw = fs.readFileSync(EVAL_FILE, "utf8");
-    if (!raw.trim()) return [];
-    return JSON.parse(raw);
+    await fs.promises.mkdir(DATA_DIR, { recursive: true });
+    try {
+      await fs.promises.access(EVALS_FILE, fs.constants.F_OK);
+    } catch {
+      // File inesistente → crea un array vuoto
+      await fs.promises.writeFile(EVALS_FILE, "[]", "utf8");
+    }
+  } catch (err) {
+    console.error("Errore ensureEvalFile:", err);
+  }
+}
+
+async function loadEvaluations() {
+  try {
+    await ensureEvalFile();
+    const raw = await fs.promises.readFile(EVALS_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    console.warn(
+      "evaluations.json non è un array, verrà re-inizializzato come []."
+    );
+    return [];
   } catch (err) {
     console.error("Errore lettura evaluations.json:", err);
     return [];
   }
 }
 
-function saveEvaluations(list) {
+async function saveEvaluations(evals) {
   try {
-    fs.writeFileSync(EVAL_FILE, JSON.stringify(list, null, 2), "utf8");
+    await ensureEvalFile();
+    const arr = Array.isArray(evals) ? evals : [];
+    await fs.promises.writeFile(
+      EVALS_FILE,
+      JSON.stringify(arr, null, 2),
+      "utf8"
+    );
   } catch (err) {
     console.error("Errore scrittura evaluations.json:", err);
   }
 }
 
-function stripHtml(html) {
-  if (!html || typeof html !== "string") return "";
-  return html.replace(/<[^>]+>/g, " ");
-}
-
+// Estrae un riassunto testuale dalla Raccomandazione editoriale
 function extractRecommendationSummary(html) {
   if (!html || typeof html !== "string") return "";
 
-  const lower = html.toLowerCase();
-  const marker = "<h3>8. raccomandazione editoriale</h3>";
-  let summary = "";
+  // Prova a prendere la sezione <h3>8. Raccomandazione editoriale</h3> ...
+  const match = html.match(
+    /<h3>8\.\s*Raccomandazione editoriale<\/h3>([\s\S]*?)(<h3>|$)/i
+  );
+  const section = match ? match[1] : html;
 
-  const idx = lower.indexOf(marker);
-  if (idx !== -1) {
-    const after = html.slice(idx + marker.length);
-    const nextH3 = after.toLowerCase().indexOf("<h3>");
-    const block = nextH3 !== -1 ? after.slice(0, nextH3) : after;
-    summary = stripHtml(block).replace(/\s+/g, " ").trim();
-  } else {
-    // fallback: tutto l'html "ripulito"
-    summary = stripHtml(html).replace(/\s+/g, " ").trim();
-  }
+  const text = section.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length > 260 ? text.slice(0, 260) + "…" : text;
+}
 
-  if (summary.length > 300) summary = summary.slice(0, 300) + "...";
-  return summary;
+// Restituisce l’ultima valutazione per titolo+autore
+async function getLastEvaluationForProject(projectTitle, projectAuthor) {
+  const all = await loadEvaluations();
+  const normTitle = (projectTitle || "").trim().toLowerCase();
+  const normAuthor = (projectAuthor || "").trim().toLowerCase();
+
+  const filtered = all.filter((e) => {
+    return (
+      e.projectTitle?.trim().toLowerCase() === normTitle &&
+      e.projectAuthor?.trim().toLowerCase() === normAuthor
+    );
+  });
+
+  if (filtered.length === 0) return null;
+
+  filtered.sort((a, b) => {
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+  });
+
+  return filtered[0];
 }
 
 // =========================
 //  FUNZIONE PROMPT AI
 // =========================
-function buildPrompt(text, mode, extraOptions = {}) {
-  const { evaluationGuidance } = extraOptions || {};
-
-  const guidanceBlock = evaluationGuidance
-    ? `
-LINEE GUIDA EDITORIALI SPECIFICHE PER QUESTO MANOSCRITTO:
-${evaluationGuidance}
-
-Devi seguire queste indicazioni mentre fai l'editing del testo.
-`
-    : "";
+function buildPrompt(text, mode, ctx = {}) {
+  const {
+    projectTitle,
+    projectAuthor,
+    lastEvaluationSummary,
+    lastEvaluationFull,
+  } = ctx;
 
   // 1) Correzione testo = SOLO refusi evidenti, niente stile
   if (mode === "correzione" || mode === "correzione-soft") {
@@ -126,12 +158,40 @@ ${text}
 `;
   }
 
-  // 2) Editing = riscrittura moderna, ma fedele nei contenuti
+  // 2) Editing = riscrittura moderna, ma fedele nei contenuti,
+  //    guidata dalla eventuale valutazione editoriale precedente
   if (mode === "editing" || mode === "editing-profondo") {
+    let evalBlock = "";
+
+    if (lastEvaluationSummary || lastEvaluationFull) {
+      evalBlock = `
+CONTESTO EDITORIALE:
+Questo manoscritto è già stato valutato dalla redazione Fermento.
+Usa la seguente valutazione editoriale per guidare le scelte di editing,
+dando PRIORITÀ ai punti critici evidenziati (stile, ritmo, personaggi, ecc.),
+e mantenendo coerenza con le raccomandazioni.
+
+— RIASSUNTO RACCOMANDAZIONE EDITORIALE —
+${lastEvaluationSummary || "(nessun riassunto disponibile)"}
+
+— TESTO COMPLETO DELLA VALUTAZIONE (HTML) —
+${lastEvaluationFull || "(nessuna valutazione disponibile)"}
+
+FINE CONTESTO EDITORIALE.
+`;
+    }
+
+    const titoloInfo =
+      projectTitle || projectAuthor
+        ? `Titolo: ${projectTitle || "(senza titolo)"} — Autore: ${
+            projectAuthor || "(sconosciuto)"
+          }`
+        : "";
+
     return `
 Sei un editor professionista per la casa editrice Fermento.
 
-${guidanceBlock}
+${titoloInfo ? titoloInfo + "\n" : ""}
 
 OBIETTIVO (EDITING):
 Prendi il testo del romanzo che segue e riscrivilo come se fosse
@@ -157,6 +217,8 @@ STRUTTURA:
 - Mantieni la stessa successione dei paragrafi e dei capitoli.
 - Se nel testo sono presenti tag HTML (<p>, <em>, <strong>...), mantienili e restituisci il risultato sempre in HTML coerente,
   aggiornando solo il contenuto testuale all'interno.
+
+${evalBlock}
 
 Restituisci il testo COMPLETO, come una versione nuova, moderna e scorrevole,
 fedele nella sostanza ma aggiornata nello stile, senza nessun commento esterno.
@@ -427,11 +489,7 @@ app.post("/api/upload-docx", upload.single("file"), async (req, res) => {
     const result = await mammoth.convertToHtml(
       { buffer: req.file.buffer },
       {
-        styleMap: [
-          "i => em",
-          "b => strong",
-          "p[style-name='Normal'] => p:fresh",
-        ],
+        styleMap: ["i => em", "b => strong", "p[style-name='Normal'] => p:fresh"],
       }
     );
 
@@ -454,6 +512,21 @@ app.post("/api/upload-docx", upload.single("file"), async (req, res) => {
 });
 
 // =========================
+//  /api/evaluations - lista valutazioni
+// =========================
+app.get("/api/evaluations", async (req, res) => {
+  try {
+    const evals = await loadEvaluations();
+    return res.json({ success: true, evaluations: evals });
+  } catch (err) {
+    console.error("Errore /api/evaluations:", err);
+    return res
+      .status(500)
+      .json({ success: false, error: "Errore nel caricamento delle valutazioni" });
+  }
+});
+
+// =========================
 //  /api/ai
 // =========================
 app.post("/api/ai", async (req, res) => {
@@ -463,12 +536,7 @@ app.post("/api/ai", async (req, res) => {
 
     console.log("Mode:", mode);
     console.log("Lunghezza testo:", text ? text.length : 0);
-    console.log(
-      "Progetto:",
-      (projectTitle || "").trim() || "/",
-      "/",
-      (projectAuthor || "").trim() || "/"
-    );
+    console.log("Progetto:", projectTitle, "/", projectAuthor, "/");
 
     if (!text || typeof text !== "string") {
       return res.status(400).json({
@@ -477,57 +545,28 @@ app.post("/api/ai", async (req, res) => {
       });
     }
 
-    // Se siamo in editing-profondo, cerchiamo una valutazione collegata
-    let evaluationGuidance = "";
+    // Prepara contesto per eventuale editing guidato dalla valutazione
+    const ctx = {
+      projectTitle: projectTitle || "",
+      projectAuthor: projectAuthor || "",
+    };
 
-    if (mode === "editing-profondo") {
-      const allEvals = loadEvaluations();
-      const normTitle = (projectTitle || "").trim().toLowerCase();
-      const normAuthor = (projectAuthor || "").trim().toLowerCase();
-
-      if (allEvals.length && (normTitle || normAuthor)) {
-        const matching = allEvals
-          .filter((ev) => {
-            const evTitle = (ev.title || "").trim().toLowerCase();
-            const evAuthor = (ev.author || "").trim().toLowerCase();
-
-            const titleMatch = normTitle ? evTitle === normTitle : true;
-            const authorMatch = normAuthor ? evAuthor === normAuthor : true;
-
-            return titleMatch && authorMatch;
-          })
-          .sort((a, b) => {
-            const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-            const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-            return db - da; // più recente prima
-          });
-
-        if (matching.length > 0) {
-          const ev = matching[0];
-          const recSummary = ev.recommendationSummary || "";
-          const plainEval = ev.evaluationHtml
-            ? stripHtml(ev.evaluationHtml).replace(/\s+/g, " ").trim()
-            : "";
-
-          const trimmedEval =
-            plainEval.length > 1500
-              ? plainEval.slice(0, 1500) + "..."
-              : plainEval;
-
-          evaluationGuidance =
-            (recSummary
-              ? `Raccomandazione editoriale sintetica: ${recSummary}\n\n`
-              : "") +
-            (trimmedEval
-              ? `Estratto della valutazione editoriale:\n${trimmedEval}`
-              : "");
-        }
+    if (
+      mode === "editing" ||
+      mode === "editing-profondo" ||
+      mode === "editing-libro"
+    ) {
+      const lastEval = await getLastEvaluationForProject(
+        projectTitle,
+        projectAuthor
+      );
+      if (lastEval) {
+        ctx.lastEvaluationSummary = lastEval.summary;
+        ctx.lastEvaluationFull = lastEval.fullHtml;
       }
     }
 
-    const prompt = buildPrompt(text, mode || "correzione", {
-      evaluationGuidance,
-    });
+    const prompt = buildPrompt(text, mode || "correzione", ctx);
 
     console.log("Invio richiesta a OpenAI...");
 
@@ -550,26 +589,32 @@ app.post("/api/ai", async (req, res) => {
 
     console.log("Risposta OpenAI ricevuta, lunghezza:", aiText.length);
 
-    // Se è una valutazione manoscritto, salviamo su file
+    // Se è una VALUTAZIONE, salviamo il risultato
     if (mode === "valutazione-manoscritto") {
-      const allEvals = loadEvaluations();
-      const id = Date.now().toString();
-      const createdAt = new Date().toISOString();
-      const recommendationSummary = extractRecommendationSummary(aiText);
+      try {
+        const evalEntry = {
+          id: Date.now().toString(),
+          projectTitle: (projectTitle || "").trim() || "(senza titolo)",
+          projectAuthor: (projectAuthor || "").trim() || "(autore sconosciuto)",
+          createdAt: new Date().toISOString(),
+          summary: extractRecommendationSummary(aiText),
+          fullHtml: aiText,
+        };
 
-      const newEval = {
-        id,
-        title: (projectTitle || "").trim(),
-        author: (projectAuthor || "").trim(),
-        createdAt,
-        recommendationSummary,
-        evaluationHtml: aiText,
-      };
+        let allEvals = await loadEvaluations();
+        if (!Array.isArray(allEvals)) {
+          console.warn(
+            "allEvals non è un array, lo re-inizializzo come []."
+          );
+          allEvals = [];
+        }
 
-      allEvals.push(newEval);
-      saveEvaluations(allEvals);
-
-      console.log("Valutazione salvata con id:", id);
+        allEvals.push(evalEntry);
+        await saveEvaluations(allEvals);
+      } catch (err) {
+        console.error("Errore nel salvataggio della valutazione:", err);
+        // NON rilanciamo, così almeno la risposta AI viene restituita al client
+      }
     }
 
     return res.json({
@@ -652,62 +697,6 @@ ${htmlBody}
   } catch (err) {
     console.error("Errore /api/download-docx:", err);
     res.status(500).json({ error: "Errore nella generazione del DOCX" });
-  }
-});
-
-// =========================
-//  /api/evaluations (lista)
-// =========================
-app.get("/api/evaluations", (req, res) => {
-  try {
-    const allEvals = loadEvaluations();
-
-    const simplified = allEvals
-      .map((ev) => ({
-        id: ev.id,
-        title: ev.title || "",
-        author: ev.author || "",
-        createdAt: ev.createdAt || "",
-        recommendationSummary: ev.recommendationSummary || "",
-      }))
-      .sort((a, b) => {
-        const da = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const db = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return db - da;
-      });
-
-    res.json({ success: true, evaluations: simplified });
-  } catch (err) {
-    console.error("Errore /api/evaluations:", err);
-    res.status(500).json({
-      success: false,
-      error: "Errore nel recupero delle valutazioni",
-    });
-  }
-});
-
-// =========================
-//  /api/evaluations/:id (dettaglio)
-// =========================
-app.get("/api/evaluations/:id", (req, res) => {
-  try {
-    const id = req.params.id;
-    const allEvals = loadEvaluations();
-    const ev = allEvals.find((e) => e.id === id);
-
-    if (!ev) {
-      return res
-        .status(404)
-        .json({ success: false, error: "Valutazione non trovata" });
-    }
-
-    res.json({ success: true, evaluation: ev });
-  } catch (err) {
-    console.error("Errore /api/evaluations/:id:", err);
-    res.status(500).json({
-      success: false,
-      error: "Errore nel recupero della valutazione",
-    });
   }
 });
 
