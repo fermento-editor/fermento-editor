@@ -103,7 +103,11 @@ function applyTypographicFixes(text) {
 // NB: assicurati che il frontend chiami QUESTO endpoint
 //     con form-data: { file: <docx> }
 
-app.post("/api/import-docx", upload.single("file"), async (req, res) => {
+// ===============================
+//   UPLOAD DOCX (più alias per compatibilità)
+// ===============================
+
+async function handleDocxUpload(req, res) {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -126,6 +130,40 @@ app.post("/api/import-docx", upload.single("file"), async (req, res) => {
           "3) Carica il .docx nell'app.",
       });
     }
+
+    if (ext !== ".docx") {
+      return res.status(400).json({
+        success: false,
+        error: "Formato non supportato. Carica un file .docx",
+      });
+    }
+
+    const buffer = await fsPromises.readFile(req.file.path);
+    const result = await mammoth.convertToHtml({ buffer });
+    const html = result.value || "";
+
+    // pulizia file temporaneo
+    await fsPromises.unlink(req.file.path).catch(() => {});
+
+    return res.json({
+      success: true,
+      type: "docx",
+      text: html,
+    });
+  } catch (err) {
+    console.error("Errore upload DOCX:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Errore durante l'import del DOCX",
+    });
+  }
+}
+
+// Rotte compatibili per l'upload (qualsiasi usi il frontend, funziona)
+app.post("/api/import-docx", upload.single("file"), handleDocxUpload);
+app.post("/api/import", upload.single("file"), handleDocxUpload);
+app.post("/api/upload", upload.single("file"), handleDocxUpload);
+
 
     if (ext !== ".docx") {
       return res.status(400).json({
