@@ -47,7 +47,6 @@ async function loadEvaluations() {
     const data = await fsPromises.readFile(evaluationsPath, "utf8");
     return JSON.parse(data);
   } catch (err) {
-    // Se non esiste il file, restituiamo lista vuota
     if (err.code === "ENOENT") return [];
     console.error("Errore loadEvaluations:", err);
     return [];
@@ -75,33 +74,16 @@ function applyTypographicFixes(text) {
   if (!text) return text;
   let t = text;
 
-  // Normalizza il carattere unico "…" in tre punti "..."
   t = t.replace(/…/g, "...");
-
-  // Qualsiasi sequenza di 2 o più punti diventa esattamente "..."
   t = t.replace(/\.{2,}/g, "...");
 
-  // Rimuove spazi PRIMA della punteggiatura (. , ; : ! ?)
   t = t.replace(/\s+([.,;:!?])/g, "$1");
-
-  // Rimuove spazi DOPO virgolette di apertura (" « “)
   t = t.replace(/(["«“])\s+/g, "$1");
-
-  // Rimuove spazi PRIMA di virgolette di chiusura (" » ”)
   t = t.replace(/\s+(["»”])/g, "$1");
-
-  // Normalizza doppie virgolette consecutive tipo ""testo""
   t = t.replace(/""/g, '"');
 
   return t;
 }
-
-// ===============================
-//   IMPORT DOCX (NO PDF) -> HTML
-// ===============================
-//
-// NB: assicurati che il frontend chiami QUESTO endpoint
-//     con form-data: { file: <docx> }
 
 // ===============================
 //   UPLOAD DOCX (più alias per compatibilità)
@@ -119,7 +101,6 @@ async function handleDocxUpload(req, res) {
     const ext = path.extname(req.file.originalname).toLowerCase();
 
     if (ext === ".pdf") {
-      // Non gestiamo i PDF: messaggio chiaro per l'editor
       return res.json({
         success: false,
         error:
@@ -142,7 +123,6 @@ async function handleDocxUpload(req, res) {
     const result = await mammoth.convertToHtml({ buffer });
     const html = result.value || "";
 
-    // pulizia file temporaneo
     await fsPromises.unlink(req.file.path).catch(() => {});
 
     return res.json({
@@ -159,46 +139,14 @@ async function handleDocxUpload(req, res) {
   }
 }
 
-// Rotte compatibili per l'upload (qualsiasi usi il frontend, funziona)
+// Rotte compatibili per l'upload
 app.post("/api/import-docx", upload.single("file"), handleDocxUpload);
 app.post("/api/import", upload.single("file"), handleDocxUpload);
 app.post("/api/upload", upload.single("file"), handleDocxUpload);
 
-
-    if (ext !== ".docx") {
-      return res.status(400).json({
-        success: false,
-        error: "Formato non supportato. Carica un file .docx",
-      });
-    }
-
-    const buffer = await fsPromises.readFile(req.file.path);
-    const result = await mammoth.convertToHtml({ buffer });
-    const html = result.value || "";
-
-    // pulizia file temporaneo
-    await fsPromises.unlink(req.file.path).catch(() => {});
-
-    return res.json({
-      success: true,
-      type: "docx",
-      text: html,
-    });
-  } catch (err) {
-    console.error("Errore /api/import-docx:", err);
-    return res.status(500).json({
-      success: false,
-      error: "Errore durante l'import del DOCX",
-    });
-  }
-});
-
 // ===============================
 //   EXPORT HTML -> DOCX
 // ===============================
-//
-// NB: se il frontend usa questa funzionalità, deve chiamare
-//     /api/export-docx con body JSON { html: "<p>...</p>" }
 
 app.post("/api/export-docx", async (req, res) => {
   try {
@@ -253,7 +201,7 @@ app.post("/api/ai", async (req, res) => {
     let systemMessage = "";
     let userMessage = "";
 
-       // 🎯 MODALITÀ CORREZIONE (FERMENTO)
+    // 🎯 CORREZIONE
     if (mode === "correzione") {
       systemMessage = `
 Sei un correttore di bozze editoriale professionista per una casa editrice italiana.
@@ -262,7 +210,7 @@ DEVI:
 - Correggere SOLO refusi, errori di battitura, punteggiatura, spazi, maiuscole/minuscole e accenti.
 - NON cambiare stile, registro, ritmo, lessico o contenuto.
 - NON riscrivere, NON semplificare, NON spiegare, NON commentare.
-- NON aggiungere alcuna frase, mai.
+- NON aggiungere alcuna frase.
 - Mantenere identici paragrafi, a capo e struttura.
 
 REGOLE TIPOGRAFICHE FERMENTO:
@@ -296,8 +244,7 @@ Restituisci SOLO il testo corretto, identico nella struttura.
 `;
     }
 
-
-    // 🌍 MODALITÀ TRADUZIONE IT → EN
+    // 🌍 TRADUZIONE IT → EN
     else if (mode === "traduzione-it-en") {
       systemMessage = `
 Sei un traduttore professionista dall'italiano all'inglese.
@@ -312,7 +259,7 @@ ${text}
 `;
     }
 
-    // Puoi aggiungere qui altre modalità (valutazione-manoscritto, ecc.)
+    // 📑 VALUTAZIONE MANOSCRITTO
     else if (mode === "valutazione-manoscritto") {
       systemMessage = `
 Sei un editor professionale che valuta manoscritti per una casa editrice italiana.
@@ -329,7 +276,6 @@ ${text}
       userMessage = text;
     }
 
-    // Client OpenAI locale alla route
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
@@ -353,12 +299,10 @@ ${text}
       response.output?.[0]?.content?.[0]?.text ||
       "Errore: nessun testo generato.";
 
-    // Filtriamo tipograficamente
     const fixedText = applyTypographicFixes(aiText);
 
     console.log("Risposta OpenAI ricevuta, lunghezza:", fixedText.length);
 
-    // Se è una valutazione, salviamo in evaluations.json
     if (mode === "valutazione-manoscritto") {
       const evaluations = await loadEvaluations();
 
@@ -380,7 +324,6 @@ ${text}
       });
     }
 
-    // Altri mode: restituiamo solo il testo AI corretto tipograficamente
     return res.json({
       success: true,
       result: fixedText,
