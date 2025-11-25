@@ -376,7 +376,6 @@ app.post("/api/ai", async (req, res) => {
     console.log("Titolo:", projectTitle);
     console.log("Autore:", projectAuthor);
 
-    // Controllo di base
     if (!text || !mode) {
       return res.status(400).json({
         success: false,
@@ -432,14 +431,13 @@ ${text}
 `;
     }
 
-    // Se non abbiamo costruito userMessage (es. altre modalità),
+    // Se non abbiamo costruito userMessage (modalità generiche),
     // usiamo il testo così com'è
     if (!userMessage) {
       userMessage = text;
     }
 
-    // ✅ Chiamata a OpenAI
-    c    // Istanzio il client OpenAI QUI dentro
+    // ✅ Istanzio il client OpenAI QUI dentro
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
@@ -459,9 +457,8 @@ ${text}
       ],
     });
 
-
     const aiText =
-      response.output[0].content[0].text || "Errore: nessun testo generato.";
+      response.output?.[0]?.content?.[0]?.text || "Errore: nessun testo generato.";
 
     // 🔧 Applichiamo il filtro tipografico FERMENTO
     const fixedText = applyTypographicFixes(aiText);
@@ -489,6 +486,28 @@ ${text}
         savedId: newEval.id,
       });
     }
+
+    // Altri mode: restituiamo solo il testo AI corretto tipograficamente
+    return res.json({
+      success: true,
+      result: fixedText,
+    });
+  } catch (err) {
+    console.error("Errore /api/ai:", err);
+    let msg = "Errore interno nel server AI";
+    if (err.response?.data?.error?.message) msg = err.response.data.error.message;
+    else if (err.message) msg = err.message;
+
+    return res.status(500).json({
+      success: false,
+      error: msg,
+    });
+  }
+});
+// ===============================
+//   GET lista valutazioni
+// ===============================
+
 
     // Altri mode: restituiamo solo il testo AI corretto tipograficamente
     return res.json({
