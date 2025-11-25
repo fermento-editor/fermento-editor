@@ -1,21 +1,75 @@
-// ===============================
-//   FERMENTO EDITOR - BACKEND
-//   Versione stabile (DOCX + valutazioni)
-//   (PDF momentaneamente disattivato)
-// ===============================
+// server/index.js - versione pulita Fermento
 
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import OpenAI from "openai";
 import multer from "multer";
 import mammoth from "mammoth";
 import htmlToDocx from "html-to-docx";
 import path from "path";
 import fs from "fs";
 import fsPromises from "fs/promises";
-import OpenAI from "openai";
+import { fileURLToPath } from "url";
 
+dotenv.config();
 
+// ===============================
+//   PATH E CONFIGURAZIONI BASE
+// ===============================
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+app.use(cors());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+// __dirname per ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// cartella upload
+const uploadDir = path.join(__dirname, "uploads");
+fs.mkdirSync(uploadDir, { recursive: true });
+
+const upload = multer({ dest: uploadDir });
+
+// file valutazioni
+const evaluationsPath = path.join(__dirname, "data", "evaluations.json");
+
+// ===============================
+//   UTILITY: LETTURA/SCRITTURA VALUTAZIONI
+// ===============================
+
+async function loadEvaluations() {
+  try {
+    const data = await fsPromises.readFile(evaluationsPath, "utf8");
+    return JSON.parse(data);
+  } catch (err) {
+    // Se non esiste il file, restituiamo lista vuota
+    if (err.code === "ENOENT") return [];
+    console.error("Errore loadEvaluations:", err);
+    return [];
+  }
+}
+
+async function saveEvaluations(list) {
+  try {
+    await fsPromises.mkdir(path.dirname(evaluationsPath), { recursive: true });
+    await fsPromises.writeFile(
+      evaluationsPath,
+      JSON.stringify(list, null, 2),
+      "utf8"
+    );
+  } catch (err) {
+    console.error("Errore saveEvaluations:", err);
+  }
+}
+
+// ===============================
+//   FILTRO TIPOGRAFICO FERMENTO
+// ===============================
 
 function applyTypographicFixes(text) {
   if (!text) return text;
@@ -37,229 +91,31 @@ function applyTypographicFixes(text) {
   t = t.replace(/\s+(["»”])/g, "$1");
 
   // Normalizza doppie virgolette consecutive tipo ""testo""
-t = t.replace(/""/g, '"');
+  t = t.replace(/""/g, '"');
 
-
-return t;
-
-}
-
-
-
-dotenv.config();
-
-const app = express();
-const PORT = process.env.PORT || 3001;
-
-// Upload in memoria
-const upload = multer({ storage: multer.memoryStorage() });
-
-// Client OpenAI
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-app.use(cors());
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true }));
-
-// ===============================
-//   Gestione file dati valutazioni
-// ===============================
-const __dirnameResolved = path.resolve();
-const DATA_DIR = path.join(__dirnameResolved, "server", "data");
-const EVAL_FILE = path.join(DATA_DIR, "evaluations.json");
-
-async function ensureDataFiles() {
-  try {
-    await fsPromises.mkdir(DATA_DIR, { recursive: true });
-  } catch (err) {
-    console.error("Errore creazione cartella data:", err);
-  }
-
-  try {
-    await fsPromises.access(EVAL_FILE, fs.constants.F_OK);
-  } catch {
-    await fsPromises.writeFile(EVAL_FILE, "[]", "utf8");
-    console.log("Creato evaluations.json");
-  }
-}
-
-await ensureDataFiles();
-
-async function loadEvaluations() {
-  try {
-    const raw = await fsPromises.readFile(EVAL_FILE, "utf8");
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (err) {
-    console.error("Errore lettura evaluations.json:", err);
-    return [];
-  }
-}
-
-async function saveEvaluations(list) {
-  try {
-    await fsPromises.writeFile(EVAL_FILE, JSON.stringify(list, null, 2), "utf8");
-    return true;
-  } catch (err) {
-    console.error("Errore scrittura evaluations.json:", err);
-    return false;
-  }
+  return t;
 }
 
 // ===============================
-//   Costruzione prompt
+//   IMPORT DOCX (NO PDF) -> HTML
 // ===============================
-function buildPrompt(text, mode) {
-      // 🎯 MODALITÀ CORREZIONE (FERMENTO)
-    if (mode === "correzione") {
-      systemMessage = `
-Sei un correttore di bozze editoriale professionista per una casa editrice italiana.
+//
+// NB: assicurati che il frontend chiami QUESTO endpoint
+//     con form-data: { file: <docx> }
 
-DEVI:
-- Correggere SOLO refusi, errori di battitura, punteggiatura, spazi, maiuscole/minuscole e accenti.
-- NON cambiare mai stile, registro, ritmo, lessico o contenuto delle frasi.
-- NON riscrivere, NON semplificare, NON tagliare e NON aggiungere nulla.
-- Mantenere identici paragrafi, a capo e struttura del testo.
-
-REGOLE TIPOGRAFICHE FERMENTO:
-- I puntini di sospensione devono essere SEMPRE esattamente tre: "...".
-- Converti qualunque altra forma di puntini ("..", "....", "…..", "…") in "...".
-- Non introdurre puntini di sospensione nuovi dove non ci sono.
-- Mantieni il numero originario di punti se NON sono sospensione (es.: 1 punto = ".", non deve diventare "..." mai).
-- Mantieni coerente il tipo di virgolette usato nel testo di partenza.
-- Non lasciare spazi subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).
-- Non lasciare spazi subito prima della chiusura delle virgolette ("Ciao", «Ciao»).
-- Non lasciare spazi prima della punteggiatura (. , ; : ! ?).
-
-Restituisci SEMPRE l'intero testo corretto, senza commenti prima o dopo.
-`;
-
-      userMessage = `
-Correggi il seguente testo secondo le REGOLE TIPOGRAFICHE FERMENTO sopra e restituisci solo il testo corretto:
-
-${text}
-`;
-    }
-
-
-  if (mode === "editing" || mode === "editing-profondo") {
-    return `
-Sei un editor professionista per la casa editrice Fermento.
-
-OBIETTIVO:
-- Riscrivere il testo in uno stile moderno, fluido e naturale.
-- Mantenere TUTTI i contenuti, eventi, personaggi, dialoghi e informazioni.
-- Migliorare leggibilità, ritmo e chiarezza.
-- NON riassumere, NON tagliare, NON aggiungere contenuti.
-- Correggere anche i refusi evidenti.
-
-Se sono presenti tag HTML, mantienili (es. <p>, <em>, <strong>), modificando solo il testo interno.
-
-RESTITUISCI:
-- Il testo completo riscritto in stile moderno.
-
-TESTO:
-${text}
-`;
-  }
-
-  if (mode === "valutazione-manoscritto") {
-    return `
-Sei un editor senior e responsabile scouting della casa editrice Fermento.
-
-Fornisci una VALUTAZIONE EDITORIALE strutturata in HTML seguendo questo schema:
-
-<h3>1. Genere e target</h3>
-- Individua genere/i e pubblico ideale.
-
-<h3>2. Stile e voce narrativa</h3>
-- Commenta qualità della scrittura, ritmo, chiarezza.
-
-<h3>3. Struttura narrativa</h3>
-- Commenta impostazione, gestione del ritmo, equilibrio tra scene.
-
-<h3>4. Personaggi</h3>
-- Profondità, coerenza, interesse, evoluzione (per quanto si può capire dal testo).
-
-<h3>5. Punti di forza</h3>
-- Elenca ciò che funziona meglio, anche dal punto di vista commerciale.
-
-<h3>6. Debolezze</h3>
-- Evidenzia criticità (stilistiche, strutturali, di mercato).
-
-<h3>7. Potenziale commerciale</h3>
-- Valuta possibilità di successo sul mercato italiano contemporaneo.
-
-<h3>8. Raccomandazione editoriale</h3>
-- Indica una raccomandazione sintetica (es. "Da approfondire", "Interessante ma richiede molto lavoro", "Poco adatto alla nostra linea", ecc.).
-
-NON riscrivere il testo, NON correggerlo, NON modificarlo. Limitati ad analizzare e commentare.
-
-TESTO DA VALUTARE:
-${text}
-`;
-  }
-
-  // fallback leggero
-  return `
-Sei un correttore leggero per Fermento. Correggi refusi evidenti mantenendo lo stile e l'HTML:
-
-TESTO:
-${text}
-`;
-}
-
-// ===============================
-//   Migliora heading per DOCX
-// ===============================
-function enhanceHeadings(html) {
-  if (!html || typeof html !== "string") return html;
-
-  let firstSeen = false;
-
-  return html.replace(/<p>([\s\S]*?)<\/p>/gi, (match, inner) => {
-    const clean = inner.replace(/<[^>]+>/g, "").trim().toUpperCase();
-
-    const isLibro = clean.startsWith("LIBRO ");
-    const isParte = clean.startsWith("PARTE ");
-    const isCapitolo = clean.startsWith("CAPITOLO ");
-
-    if (!isLibro && !isParte && !isCapitolo) return match;
-
-    let style = "text-align:center; font-weight:bold;";
-    if (firstSeen) {
-      style += " page-break-before:always;";
-    }
-    firstSeen = true;
-
-    const tag = isLibro ? "h1" : isParte ? "h2" : "h3";
-    return `<${tag} style="${style}">${inner}</${tag}>`;
-  });
-}
-
-// ===============================
-//   Upload DOCX (PDF momentaneamente non supportato)
-// ===============================
-app.post("/api/upload-docx", upload.single("file"), async (req, res) => {
+app.post("/api/import-docx", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
         success: false,
-        error: "Nessun file ricevuto",
+        error: "Nessun file caricato",
       });
     }
 
-    const name = req.file.originalname.toLowerCase();
-    const isDocx = name.endsWith(".docx");
-    const isPdf = name.endsWith(".pdf");
+    const ext = path.extname(req.file.originalname).toLowerCase();
 
-    console.log("Upload ricevuto:", req.file.originalname);
-
-    if (isPdf) {
-      // PDF NON supportato, ma rispondiamo con 200
-      // così il frontend mostra il messaggio in modo leggibile
+    if (ext === ".pdf") {
+      // Non gestiamo i PDF: messaggio chiaro per l'editor
       return res.json({
         success: false,
         error:
@@ -271,24 +127,19 @@ app.post("/api/upload-docx", upload.single("file"), async (req, res) => {
       });
     }
 
-
-    if (!isDocx) {
+    if (ext !== ".docx") {
       return res.status(400).json({
         success: false,
-        error: "Sono supportati solo file .docx (Word).",
+        error: "Formato non supportato. Carica un file .docx",
       });
     }
 
-    // DOCX → HTML
-    const result = await mammoth.convertToHtml(
-      { buffer: req.file.buffer },
-      {
-        styleMap: ["i => em", "b => strong"],
-      }
-    );
+    const buffer = await fsPromises.readFile(req.file.path);
+    const result = await mammoth.convertToHtml({ buffer });
+    const html = result.value || "";
 
-    let html = result.value || "";
-    html = html.replace(/<p>\s*<\/p>/g, ""); // rimuove p vuoti
+    // pulizia file temporaneo
+    await fsPromises.unlink(req.file.path).catch(() => {});
 
     return res.json({
       success: true,
@@ -296,75 +147,53 @@ app.post("/api/upload-docx", upload.single("file"), async (req, res) => {
       text: html,
     });
   } catch (err) {
-    console.error("Errore /api/upload-docx:", err);
+    console.error("Errore /api/import-docx:", err);
     return res.status(500).json({
       success: false,
-      error: "Errore durante il caricamento del file",
+      error: "Errore durante l'import del DOCX",
     });
   }
 });
 
 // ===============================
-//   Download DOCX
+//   EXPORT HTML -> DOCX
 // ===============================
-app.post("/api/download-docx", async (req, res) => {
-  try {
-    const { correctedHtml, filename } = req.body || {};
+//
+// NB: se il frontend usa questa funzionalità, deve chiamare
+//     /api/export-docx con body JSON { html: "<p>...</p>" }
 
-    if (!correctedHtml || typeof correctedHtml !== "string") {
-      return res.status(400).json({ error: "Missing correctedHtml" });
+app.post("/api/export-docx", async (req, res) => {
+  try {
+    const { html } = req.body;
+    if (!html) {
+      return res.status(400).json({
+        success: false,
+        error: "html mancante nel body",
+      });
     }
 
-    const safeName = (filename && filename.trim()) || "testo-fermento.docx";
-
-    let htmlBody = enhanceHeadings(correctedHtml);
-
-    const fullHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8" />
-<style>
-  body {
-    font-family: "Times New Roman", serif;
-    font-size: 12pt;
-  }
-  p {
-    margin-top: 0;
-    margin-bottom: 0;
-    text-align: justify;
-  }
-</style>
-</head>
-<body>
-${htmlBody}
-</body>
-</html>
-`;
-
-    const buffer = await htmlToDocx(fullHtml, null, {
-      pageSize: "A4",
-    });
+    const docxBuffer = await htmlToDocx(html, null, {});
 
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     );
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${safeName}"`
-    );
+    res.setHeader("Content-Disposition", 'attachment; filename="document.docx"');
 
-    res.send(Buffer.from(buffer));
+    return res.end(docxBuffer);
   } catch (err) {
-    console.error("Errore /api/download-docx:", err);
-    res.status(500).json({ error: "Errore nella generazione del DOCX" });
+    console.error("Errore /api/export-docx:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Errore durante la conversione in DOCX",
+    });
   }
 });
 
 // ===============================
-//   /api/ai → correzione, editing, valutazione
+//   API AI PRINCIPALE
 // ===============================
+
 app.post("/api/ai", async (req, res) => {
   try {
     const { mode, text, project, projectTitle, projectAuthor } = req.body;
@@ -386,35 +215,49 @@ app.post("/api/ai", async (req, res) => {
     let systemMessage = "";
     let userMessage = "";
 
-    // 🎯 MODALITÀ CORREZIONE (FERMENTO)
+       // 🎯 MODALITÀ CORREZIONE (FERMENTO)
     if (mode === "correzione") {
       systemMessage = `
 Sei un correttore di bozze editoriale professionista per una casa editrice italiana.
 
 DEVI:
 - Correggere SOLO refusi, errori di battitura, punteggiatura, spazi, maiuscole/minuscole e accenti.
-- NON cambiare mai stile, registro, ritmo, lessico o contenuto delle frasi.
-- NON riscrivere, NON semplificare, NON tagliare e NON aggiungere nulla.
-- Mantenere identici paragrafi, a capo e struttura del testo.
+- NON cambiare stile, registro, ritmo, lessico o contenuto.
+- NON riscrivere, NON semplificare, NON spiegare, NON commentare.
+- NON aggiungere alcuna frase, mai.
+- Mantenere identici paragrafi, a capo e struttura.
 
 REGOLE TIPOGRAFICHE FERMENTO:
 - I puntini di sospensione devono essere SEMPRE esattamente tre: "...".
-- Converti qualunque altra forma di puntini ("..", "....", "…..", "…") in "...".
-- Non introdurre puntini di sospensione nuovi dove non ci sono.
-- Mantieni coerente il tipo di virgolette usato nel testo di partenza.
-- Non lasciare spazi subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).
-- Non lasciare spazi subito prima della chiusura delle virgolette ("Ciao", «Ciao»).
-- Non lasciare spazi prima della punteggiatura (. , ; : ! ?).
+- Converti qualunque altra forma ("..", "....", "…..", "…") in "...".
+- Non introdurre puntini nuovi dove non ci sono.
+- Mantieni il tipo di virgolette usato nel testo di partenza.
+- Nessuno spazio subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).
+- Nessuno spazio subito prima della chiusura delle virgolette ("Ciao", «Ciao»).
+- Nessuno spazio prima di punteggiatura (. , ; : ! ?).
 
-Restituisci SEMPRE l'intero testo corretto, senza commenti prima o dopo.
+È VIETATO:
+- Commentare.
+- Spiegare le correzioni.
+- Fare liste.
+- Mettere note.
+- Introdurre testo aggiuntivo.
+
+Restituisci ESCLUSIVAMENTE il testo corretto.
 `;
 
       userMessage = `
-Correggi il seguente testo secondo le REGOLE TIPOGRAFICHE FERMENTO sopra e restituisci solo il testo corretto:
+Correggi il testo seguente:
 
 ${text}
+
+⚠️ IMPORTANTISSIMO:
+RISPONDI SOLO CON IL TESTO CORRETTO.
+Nessun commento, nessuna spiegazione, nessuna introduzione, nessuna lista, nessuna frase extra.
+Restituisci SOLO il testo corretto, identico nella struttura.
 `;
     }
+
 
     // 🌍 MODALITÀ TRADUZIONE IT → EN
     else if (mode === "traduzione-it-en") {
@@ -431,13 +274,24 @@ ${text}
 `;
     }
 
-    // Se non abbiamo costruito userMessage (modalità generiche),
-    // usiamo il testo così com'è
+    // Puoi aggiungere qui altre modalità (valutazione-manoscritto, ecc.)
+    else if (mode === "valutazione-manoscritto") {
+      systemMessage = `
+Sei un editor professionale che valuta manoscritti per una casa editrice italiana.
+Scrivi una valutazione dettagliata, in HTML, del manoscritto fornito.
+`;
+      userMessage = `
+Valuta il seguente testo (manoscritto) e produci una scheda di valutazione in HTML:
+
+${text}
+`;
+    }
+
     if (!userMessage) {
       userMessage = text;
     }
 
-    // ✅ Istanzio il client OpenAI QUI dentro
+    // Client OpenAI locale alla route
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
@@ -458,9 +312,10 @@ ${text}
     });
 
     const aiText =
-      response.output?.[0]?.content?.[0]?.text || "Errore: nessun testo generato.";
+      response.output?.[0]?.content?.[0]?.text ||
+      "Errore: nessun testo generato.";
 
-    // 🔧 Applichiamo il filtro tipografico FERMENTO
+    // Filtriamo tipograficamente
     const fixedText = applyTypographicFixes(aiText);
 
     console.log("Risposta OpenAI ricevuta, lunghezza:", fixedText.length);
