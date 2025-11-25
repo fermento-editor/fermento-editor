@@ -504,29 +504,6 @@ ${text}
     });
   }
 });
-// ===============================
-//   GET lista valutazioni
-// ===============================
-
-
-    // Altri mode: restituiamo solo il testo AI corretto tipograficamente
-    return res.json({
-      success: true,
-      result: fixedText,
-    });
-  } catch (err) {
-    console.error("Errore /api/ai:", err);
-    let msg = "Errore interno nel server AI";
-    if (err.response?.data?.error?.message) msg = err.response.data.error.message;
-    else if (err.message) msg = err.message;
-
-    return res.status(500).json({
-      success: false,
-      error: msg,
-    });
-  }
-});
-
 
 // ===============================
 //   GET lista valutazioni
