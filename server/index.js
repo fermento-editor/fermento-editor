@@ -7,13 +7,22 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import OpenAI from "openai";
 import multer from "multer";
 import mammoth from "mammoth";
 import htmlToDocx from "html-to-docx";
 import path from "path";
 import fs from "fs";
 import fsPromises from "fs/promises";
+
+// === CLIENT OPENAI ===
+import OpenAI from "openai";
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+console.log("OPENAI_API_KEY presente?", !!process.env.OPENAI_API_KEY);
+
 
 function applyTypographicFixes(text) {
   if (!text) return text;
