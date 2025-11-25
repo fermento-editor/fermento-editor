@@ -1,0 +1,182 @@
+app.post("/api/ai", async (req, res) => {
+  try {
+    const { mode, text, project } = req.body;
+
+    console.log("Richiesta /api/ai ricevuta.");
+    console.log("Mode:", mode);
+    console.log("Lunghezza testo:", text ? text.length : 0);
+    console.log("Progetto:", project);
+
+    // Controllo di base
+    if (!text || !mode) {
+      return res.status(400).json({ error: "text e mode sono obbligatori." });
+    }
+
+    let systemMessage = "";
+    let userMessage = "";
+
+    // 🎯 MODALITÀ CORREZIONE
+    if (mode === "correzione") {
+      systemMessage = `
+Sei un correttore di bozze editoriale professionista in lingua italiana.
+
+REGOLE FERREE:
+- Correggi SOLO refusi, errori di battitura, punteggiatura, spazi, maiuscole/minuscole e accenti.
+- NON cambiare mai stile, registro, ritmo, lessico o contenuto delle frasi.
+- NON riscrivere, NON semplificare, NON tagliare e NON aggiungere nulla.
+- Mantieni identici paragrafi, a capo e formattazione.
+- Restituisci SEMPRE l'intero testo corretto, senza commenti prima o dopo.
+`;
+
+      userMessage = `
+Correggi il seguente testo secondo le regole sopra e restituisci solo il testo corretto:
+
+${text}
+`;
+    }
+
+    // 🌍 MODALITÀ TRADUZIONE IT → EN (per dopo, se ti serve)
+    else if (mode === "traduzione-it-en") {
+      systemMessage = `
+Sei un traduttore professionista dall'italiano all'inglese.
+Traduci in un inglese naturale e corretto, mantenendo struttura, paragrafi e formattazione del testo originale.
+Non aggiungere commenti, non spiegare nulla, restituisci solo il testo tradotto.
+`;
+
+      userMessage = `
+Traduci in inglese il seguente testo italiano:
+
+${text}
+`;
+    }
+
+    // Altre modalità non gestite
+    else {
+      return res.status(400).json({ error: `mode non gestito: ${mode}` });
+    }
+
+    // ✅ Chiamata a OpenAI
+    const response = await openai.responses.create({
+      model: "gpt-4.1",   // modello più forte per le correzioni
+      temperature: 0,     // niente fantasia, solo precisione
+      input: [
+        {
+          role: "system",
+          content: systemMessage,
+        },
+        {
+          role: "user",
+          content: userMessage,
+        },
+      ],
+    });
+
+    const aiText =
+      response.output[0].content[0].text || "Errore: nessun testo generato.";
+
+    console.log("Risposta OpenAI ricevuta, lunghezza:", aiText.length);
+
+    // 🔙 Risposta al frontend
+    return res.json({ result: aiText });
+  } catch (error) {
+    console.error("Errore in /api/ai:", error);
+    return res.status(500).json({ error: "Errore interno del server." });
+  }
+});
+
+    const aiText = completion.choices?.[0]?.message?.content?.trim() || "";
+    console.log("Risposta OpenAI ricevuta, lunghezza:", aiText.length);
+
+    // Se è una valutazione, salviamo in evaluations.json
+    if (mode === "valutazione-manoscritto") {
+      const evaluations = await loadEvaluations();
+
+      const newEval = {
+        id: Date.now().toString(),
+        title: projectTitle || "Titolo mancante",
+        author: projectAuthor || "Autore mancante",
+        date: new Date().toISOString(),
+        html: aiText,
+      };
+
+      evaluations.push(newEval);
+      await saveEvaluations(evaluations);
+
+      return res.json({
+        success: true,
+        result: aiText,
+        savedId: newEval.id,
+      });
+    }
+
+    // Altri mode: restituiamo solo il testo AI
+    return res.json({
+      success: true,
+      result: aiText,
+    });
+  } catch (err) {
+    console.error("Errore /api/ai:", err);
+    let msg = "Errore interno nel server AI";
+    if (err.response?.data?.error?.message) msg = err.response.data.error.message;
+    else if (err.message) msg = err.message;
+
+    return res.status(500).json({
+      success: false,
+      error: msg,
+    });
+  }
+});
+
+// ===============================
+//   GET lista valutazioni
+// ===============================
+app.get("/api/evaluations", async (req, res) => {
+  try {
+    const list = await loadEvaluations();
+    return res.json({
+      success: true,
+      evaluations: list,
+    });
+  } catch (err) {
+    console.error("Errore GET /api/evaluations:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Errore lettura valutazioni",
+    });
+  }
+});
+
+// ===============================
+//   GET singola valutazione
+// ===============================
+app.get("/api/evaluations/:id", async (req, res) => {
+  try {
+    const list = await loadEvaluations();
+    const found = list.find((v) => v.id === req.params.id);
+
+    if (!found) {
+      return res.status(404).json({
+        success: false,
+        error: "Valutazione non trovata",
+      });
+    }
+
+    return res.json({
+      success: true,
+      evaluation: found,
+    });
+  } catch (err) {
+    console.error("Errore GET /api/evaluations/:id:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Errore lettura valutazione",
+    });
+  }
+});
+
+// ===============================
+//   AVVIO SERVER
+// ===============================
+app.listen(PORT, () => {
+  console.log(`Fermento AI backend in ascolto su http://localhost:${PORT}`);
+});

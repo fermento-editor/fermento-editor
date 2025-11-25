@@ -50,7 +50,7 @@ function splitHtmlIntoChunks(html, maxChars = 40000) {
 
 function App() {
   const [originalHtml, setOriginalHtml] = useState(""); // HTML importato
-  const [workedHtml, setWorkedHtml] = useState(""); // HTML lavorato
+  const [workedHtml, setWorkedHtml] = useState(""); // HTML / testo lavorato
   const [status, setStatus] = useState("Pronto.");
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [lastAiMode, setLastAiMode] = useState(null);
@@ -165,6 +165,17 @@ function App() {
       return;
     }
 
+    const isTranslationMode = mode.startsWith("traduzione");
+
+    // Se stiamo traducendo, estraiamo solo il testo semplice dai tag HTML
+    let textToSend = originalHtml;
+    if (isTranslationMode) {
+      const tmpDiv = document.createElement("div");
+      tmpDiv.innerHTML = originalHtml;
+      const plainText = tmpDiv.textContent || tmpDiv.innerText || "";
+      textToSend = plainText;
+    }
+
     // Avviso se provi a fare EDITING su un libro intero in un colpo solo
     if (mode === "editing-profondo" && originalHtml.length > 120000) {
       const proceed = window.confirm(
@@ -191,7 +202,7 @@ function App() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          text: originalHtml, // HTML
+          text: textToSend, // HTML per correzione/editing, testo semplice per traduzioni
           mode,
           projectTitle,
           projectAuthor,
@@ -806,9 +817,6 @@ function App() {
             <option value="traduzione-fr-it">FR → IT</option>
             <option value="traduzione-es-it">ES → IT</option>
             <option value="traduzione-de-it">DE → IT</option>
-            <option value="traduzione-it-es">IT → ES</option>
-            <option value="traduzione-it-fr">IT → FR</option>
-            <option value="traduzione-it-de">IT → DE</option>
           </select>
 
           <button

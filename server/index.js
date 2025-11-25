@@ -15,6 +15,35 @@ import path from "path";
 import fs from "fs";
 import fsPromises from "fs/promises";
 
+function applyTypographicFixes(text) {
+  if (!text) return text;
+  let t = text;
+
+  // Normalizza il carattere unico "…" in tre punti "..."
+  t = t.replace(/…/g, "...");
+
+  // Qualsiasi sequenza di 2 o più punti diventa esattamente "..."
+  t = t.replace(/\.{2,}/g, "...");
+
+  // Rimuove spazi PRIMA della punteggiatura (. , ; : ! ?)
+  t = t.replace(/\s+([.,;:!?])/g, "$1");
+
+  // Rimuove spazi DOPO virgolette di apertura (" « “)
+  t = t.replace(/(["«“])\s+/g, "$1");
+
+  // Rimuove spazi PRIMA di virgolette di chiusura (" » ”)
+  t = t.replace(/\s+(["»”])/g, "$1");
+
+  // Normalizza doppie virgolette consecutive tipo ""testo""
+t = t.replace(/""/g, '"');
+
+
+return t;
+
+}
+
+
+
 dotenv.config();
 
 const app = express();
@@ -81,22 +110,37 @@ async function saveEvaluations(list) {
 //   Costruzione prompt
 // ===============================
 function buildPrompt(text, mode) {
-  if (mode === "correzione" || mode === "correzione-soft") {
-    return `
-Sei un correttore di bozze per la casa editrice Fermento.
+      // 🎯 MODALITÀ CORREZIONE (FERMENTO)
+    if (mode === "correzione") {
+      systemMessage = `
+Sei un correttore di bozze editoriale professionista per una casa editrice italiana.
 
-OBIETTIVO:
-- Correggere SOLO refusi evidenti (battitura, accenti, apostrofi, punteggiatura palesemente errata).
-- NON cambiare stile, tono, lessico, contenuto.
-- Mantieni intatti eventuali tag HTML (<p>, <em>, <strong>, ecc.).
+DEVI:
+- Correggere SOLO refusi, errori di battitura, punteggiatura, spazi, maiuscole/minuscole e accenti.
+- NON cambiare mai stile, registro, ritmo, lessico o contenuto delle frasi.
+- NON riscrivere, NON semplificare, NON tagliare e NON aggiungere nulla.
+- Mantenere identici paragrafi, a capo e struttura del testo.
 
-RESTITUISCI:
-- SOLO il testo corretto, senza spiegazioni.
+REGOLE TIPOGRAFICHE FERMENTO:
+- I puntini di sospensione devono essere SEMPRE esattamente tre: "...".
+- Converti qualunque altra forma di puntini ("..", "....", "…..", "…") in "...".
+- Non introdurre puntini di sospensione nuovi dove non ci sono.
+- Mantieni il numero originario di punti se NON sono sospensione (es.: 1 punto = ".", non deve diventare "..." mai).
+- Mantieni coerente il tipo di virgolette usato nel testo di partenza.
+- Non lasciare spazi subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).
+- Non lasciare spazi subito prima della chiusura delle virgolette ("Ciao", «Ciao»).
+- Non lasciare spazi prima della punteggiatura (. , ; : ! ?).
 
-TESTO:
+Restituisci SEMPRE l'intero testo corretto, senza commenti prima o dopo.
+`;
+
+      userMessage = `
+Correggi il seguente testo secondo le REGOLE TIPOGRAFICHE FERMENTO sopra e restituisci solo il testo corretto:
+
 ${text}
 `;
-  }
+    }
+
 
   if (mode === "editing" || mode === "editing-profondo") {
     return `
@@ -321,41 +365,100 @@ ${htmlBody}
 // ===============================
 app.post("/api/ai", async (req, res) => {
   try {
-    const { text, mode, projectTitle, projectAuthor } = req.body || {};
+    const { mode, text, project, projectTitle, projectAuthor } = req.body;
 
     console.log("Richiesta /api/ai ricevuta.");
     console.log("Mode:", mode);
     console.log("Lunghezza testo:", text ? text.length : 0);
-    console.log("Progetto:", projectTitle, "/", projectAuthor, "/");
+    console.log("Progetto:", project);
+    console.log("Titolo:", projectTitle);
+    console.log("Autore:", projectAuthor);
 
-    if (!text || typeof text !== "string") {
+    // Controllo di base
+    if (!text || !mode) {
       return res.status(400).json({
         success: false,
-        error: "Campo 'text' mancante o non valido",
+        error: "text e mode sono obbligatori.",
       });
     }
 
-    const prompt = buildPrompt(text, mode || "correzione");
+    let systemMessage = "";
+    let userMessage = "";
 
-    console.log("Invio richiesta a OpenAI...");
+    // 🎯 MODALITÀ CORREZIONE (FERMENTO)
+    if (mode === "correzione") {
+      systemMessage = `
+Sei un correttore di bozze editoriale professionista per una casa editrice italiana.
 
-    const completion = await client.chat.completions.create({
-      model: "gpt-4.1-mini",
-      messages: [
+DEVI:
+- Correggere SOLO refusi, errori di battitura, punteggiatura, spazi, maiuscole/minuscole e accenti.
+- NON cambiare mai stile, registro, ritmo, lessico o contenuto delle frasi.
+- NON riscrivere, NON semplificare, NON tagliare e NON aggiungere nulla.
+- Mantenere identici paragrafi, a capo e struttura del testo.
+
+REGOLE TIPOGRAFICHE FERMENTO:
+- I puntini di sospensione devono essere SEMPRE esattamente tre: "...".
+- Converti qualunque altra forma di puntini ("..", "....", "…..", "…") in "...".
+- Non introdurre puntini di sospensione nuovi dove non ci sono.
+- Mantieni coerente il tipo di virgolette usato nel testo di partenza.
+- Non lasciare spazi subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).
+- Non lasciare spazi subito prima della chiusura delle virgolette ("Ciao", «Ciao»).
+- Non lasciare spazi prima della punteggiatura (. , ; : ! ?).
+
+Restituisci SEMPRE l'intero testo corretto, senza commenti prima o dopo.
+`;
+
+      userMessage = `
+Correggi il seguente testo secondo le REGOLE TIPOGRAFICHE FERMENTO sopra e restituisci solo il testo corretto:
+
+${text}
+`;
+    }
+
+    // 🌍 MODALITÀ TRADUZIONE IT → EN
+    else if (mode === "traduzione-it-en") {
+      systemMessage = `
+Sei un traduttore professionista dall'italiano all'inglese.
+Traduci in un inglese naturale e corretto, mantenendo struttura, paragrafi e formattazione del testo originale.
+Non aggiungere commenti, non spiegare nulla, restituisci solo il testo tradotto.
+`;
+
+      userMessage = `
+Traduci in inglese il seguente testo italiano:
+
+${text}
+`;
+    }
+
+    // Se non abbiamo costruito userMessage (es. altre modalità),
+    // usiamo il testo così com'è
+    if (!userMessage) {
+      userMessage = text;
+    }
+
+    // ✅ Chiamata a OpenAI
+    const response = await openai.responses.create({
+      model: "gpt-4.1",
+      temperature: 0,
+      input: [
         {
           role: "system",
-          content:
-            "Sei un assistente specializzato in correzione, editing, valutazione per la casa editrice Fermento.",
+          content: systemMessage || "",
         },
         {
           role: "user",
-          content: prompt,
+          content: userMessage,
         },
       ],
     });
 
-    const aiText = completion.choices?.[0]?.message?.content?.trim() || "";
-    console.log("Risposta OpenAI ricevuta, lunghezza:", aiText.length);
+    const aiText =
+      response.output[0].content[0].text || "Errore: nessun testo generato.";
+
+    // 🔧 Applichiamo il filtro tipografico FERMENTO
+    const fixedText = applyTypographicFixes(aiText);
+
+    console.log("Risposta OpenAI ricevuta, lunghezza:", fixedText.length);
 
     // Se è una valutazione, salviamo in evaluations.json
     if (mode === "valutazione-manoscritto") {
@@ -366,7 +469,7 @@ app.post("/api/ai", async (req, res) => {
         title: projectTitle || "Titolo mancante",
         author: projectAuthor || "Autore mancante",
         date: new Date().toISOString(),
-        html: aiText,
+        html: fixedText,
       };
 
       evaluations.push(newEval);
@@ -374,15 +477,15 @@ app.post("/api/ai", async (req, res) => {
 
       return res.json({
         success: true,
-        result: aiText,
+        result: fixedText,
         savedId: newEval.id,
       });
     }
 
-    // Altri mode: restituiamo solo il testo AI
+    // Altri mode: restituiamo solo il testo AI corretto tipograficamente
     return res.json({
       success: true,
-      result: aiText,
+      result: fixedText,
     });
   } catch (err) {
     console.error("Errore /api/ai:", err);
@@ -396,6 +499,7 @@ app.post("/api/ai", async (req, res) => {
     });
   }
 });
+
 
 // ===============================
 //   GET lista valutazioni
