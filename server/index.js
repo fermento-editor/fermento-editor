@@ -13,15 +13,8 @@ import htmlToDocx from "html-to-docx";
 import path from "path";
 import fs from "fs";
 import fsPromises from "fs/promises";
-
-// === CLIENT OPENAI ===
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-console.log("OPENAI_API_KEY presente?", !!process.env.OPENAI_API_KEY);
 
 
 function applyTypographicFixes(text) {
@@ -446,7 +439,12 @@ ${text}
     }
 
     // ✅ Chiamata a OpenAI
-    const response = await openai.responses.create({
+    c    // Istanzio il client OpenAI QUI dentro
+    const client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    const response = await client.responses.create({
       model: "gpt-4.1",
       temperature: 0,
       input: [
@@ -460,6 +458,7 @@ ${text}
         },
       ],
     });
+
 
     const aiText =
       response.output[0].content[0].text || "Errore: nessun testo generato.";
