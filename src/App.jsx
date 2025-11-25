@@ -436,63 +436,67 @@ function App() {
 
   // Download versione lavorata in .docx
   const handleDownloadWorkedDocx = async () => {
-    if (!workedHtml || workedHtml.trim() === "") {
-      alert("Non c'è ancora nessun testo lavorato da scaricare.");
-      return;
+  if (!workedHtml || workedHtml.trim() === "") {
+    alert("Non c'è ancora nessun testo lavorato da scaricare.");
+    return;
+  }
+
+  try {
+    setStatus("Generazione file Word (.docx) in corso...");
+
+    let baseName = "testo-lavorato-fermento";
+    const cleanTitle = projectTitle
+      .trim()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "_");
+    const cleanAuthor = projectAuthor
+      .trim()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "_");
+
+    if (cleanTitle || cleanAuthor) {
+      baseName = `${cleanTitle || "Progetto"}-${cleanAuthor || "Autore"}`;
     }
 
-    try {
-      setStatus("Generazione file Word (.docx) in corso...");
+    const filename = `${baseName}.docx`;
 
-      let baseName = "testo-lavorato-fermento";
-      const cleanTitle = projectTitle
-        .trim()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "_");
-      const cleanAuthor = projectAuthor
-        .trim()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "_");
+    // 🔴 QUI ERA IL PROBLEMA:
+    // prima chiamavi /api/download-docx con { correctedHtml, filename }
+    // ✅ ORA usiamo /api/export-docx con { html: workedHtml }
 
-      if (cleanTitle || cleanAuthor) {
-        baseName = `${cleanTitle || "Progetto"}-${cleanAuthor || "Autore"}`;
-      }
+    const response = await fetch(`${API_BASE}/api/export-docx`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        html: workedHtml, // il testo lavorato in HTML
+      }),
+    });
 
-      const filename = `${baseName}.docx`;
-
-      const response = await fetch(`${API_BASE}/api/download-docx`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          correctedHtml: workedHtml,
-          filename,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Errore nella risposta del server (DOCX).");
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-
-      setStatus("File Word (.docx) scaricato correttamente.");
-    } catch (err) {
-      console.error("Errore download DOCX:", err);
-      setStatus("Errore durante il download del DOCX: " + err.message);
-      alert("Si è verificato un errore durante il download del DOCX.");
+    if (!response.ok) {
+      throw new Error("Errore nella risposta del server (DOCX). Status: " + response.status);
     }
-  };
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+
+    setStatus("File Word (.docx) scaricato correttamente.");
+  } catch (err) {
+    console.error("Errore download DOCX:", err);
+    setStatus("Errore durante il download del DOCX: " + err.message);
+    alert("Si è verificato un errore durante il download del DOCX.");
+  }
+};
+
 
   // Carica una valutazione salvata nella colonna destra
   const handleOpenEvaluation = async (id) => {
