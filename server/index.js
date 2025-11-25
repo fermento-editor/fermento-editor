@@ -201,8 +201,8 @@ app.post("/api/ai", async (req, res) => {
     let systemMessage = "";
     let userMessage = "";
 
-    // 🎯 CORREZIONE
-    if (mode === "correzione") {
+   // 🎯 CORREZIONE
+if (mode === "correzione" || mode === "correzione-soft") {
       systemMessage = `
 Sei un correttore di bozze editoriale professionista per una casa editrice italiana.
 
