@@ -11,6 +11,8 @@ import path from "path";
 import fs from "fs";
 import fsPromises from "fs/promises";
 import { fileURLToPath } from "url";
+import pdfParse from "pdf-parse";
+
 
 dotenv.config();
 
@@ -137,45 +139,68 @@ async function handleDocxUpload(req, res) {
     }
 
     const ext = path.extname(req.file.originalname).toLowerCase();
-
-    if (ext === ".pdf") {
-      return res.json({
-        success: false,
-        error:
-          "Al momento il server NON supporta direttamente i PDF.\n\n" +
-          "Per usarlo in Fermento Editor:\n" +
-          "1) Apri il PDF in Word o LibreOffice\n" +
-          "2) Salvalo come file .docx\n" +
-          "3) Carica il .docx nell'app.",
-      });
-    }
-
-    if (ext !== ".docx") {
-      return res.status(400).json({
-        success: false,
-        error: "Formato non supportato. Carica un file .docx",
-      });
-    }
-
     const buffer = await fsPromises.readFile(req.file.path);
-    const result = await mammoth.convertToHtml({ buffer });
-    const html = result.value || "";
 
+    // 📄 GESTIONE PDF (per VALUTAZIONE)
+    if (ext === ".pdf") {
+      try {
+        const data = await pdfParse(buffer);
+        let txt = (data.text || "").trim();
+
+        // trasformiamo il testo in un HTML semplice a paragrafi
+        const html = txt
+          .split(/\n{2,}/) // blocchi separati da righe vuote
+          .map((p) => p.trim())
+          .filter((p) => p.length > 0)
+          .map((p) => `<p>${p}</p>`)
+          .join("\n");
+
+        await fsPromises.unlink(req.file.path).catch(() => {});
+
+        return res.json({
+          success: true,
+          type: "pdf",
+          text: html,
+        });
+      } catch (err) {
+        console.error("Errore parsing PDF:", err);
+        await fsPromises.unlink(req.file.path).catch(() => {});
+        return res.status(500).json({
+          success: false,
+          error: "Errore durante la lettura del PDF",
+        });
+      }
+    }
+
+    // 📝 DOCX (correzioni + valutazioni)
+    if (ext === ".docx") {
+      const result = await mammoth.convertToHtml({ buffer });
+      const html = result.value || "";
+
+      await fsPromises.unlink(req.file.path).catch(() => {});
+
+      return res.json({
+        success: true,
+        type: "docx",
+        text: html,
+      });
+    }
+
+    // altri formati: rifiutati
     await fsPromises.unlink(req.file.path).catch(() => {});
-
-    return res.json({
-      success: true,
-      type: "docx",
-      text: html,
+    return res.status(400).json({
+      success: false,
+      error: "Formato non supportato. Carica un file .docx o .pdf",
     });
   } catch (err) {
-    console.error("Errore upload DOCX:", err);
+    console.error("Errore upload DOCX/PDF:", err);
     return res.status(500).json({
       success: false,
-      error: "Errore durante l'import del DOCX",
+      error: "Errore durante l'import del file",
     });
   }
 }
+
 
 // Rotte compatibili per l'upload
 app.post("/api/import-docx", upload.single("file"), handleDocxUpload);
@@ -214,9 +239,6 @@ app.post("/api/export-docx", async (req, res) => {
   }
 });
 
-// ===============================
-//   API AI PRINCIPALE
-// ===============================
 
 // ===============================
 //   API AI PRINCIPALE
