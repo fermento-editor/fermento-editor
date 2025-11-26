@@ -74,16 +74,44 @@ function applyTypographicFixes(text) {
   if (!text) return text;
   let t = text;
 
+  // Normalizza il carattere unico "…" in tre punti "..."
   t = t.replace(/…/g, "...");
+
+  // Qualsiasi sequenza di 2 o più punti diventa esattamente "..."
   t = t.replace(/\.{2,}/g, "...");
 
+  // Rimuove spazi PRIMA della punteggiatura (. , ; : ! ?)
   t = t.replace(/\s+([.,;:!?])/g, "$1");
+
+  // Rimuove spazi DOPO virgolette di apertura (" « “)
   t = t.replace(/(["«“])\s+/g, "$1");
-  t = t.replace(/\s+(["»”])/g, "$1");
+
+  // Rimuove spazi PRIMA di virgolette di chiusura (" » ” ’)
+  t = t.replace(/\s+(["»”'])/g, "$1");
+
+  // Normalizza doppie virgolette consecutive tipo ""testo""
   t = t.replace(/""/g, '"');
+
+  // 🔹 REGOLE SU ? E ! 🔹
+
+  // 1) Rimuove puntini dopo ? o ! (es. "?...", "!.." -> "?", "!")
+  t = t.replace(/([!?])\.{1,}/g, "$1");
+
+  // 2) Qualsiasi sequenza di ? o ! (anche miste) diventa un solo segno,
+  // mantenendo SOLO l'ultimo (es. "??" -> "?", "!!!" -> "!", "?!?!" -> "!")
+  t = t.replace(/[!?]{2,}/g, (match) => match[match.length - 1]);
+
+  // 🔹 SPAZIO DOPO VIRGOLETTE DI CHIUSURA 🔹
+  // Dopo " » ” ’ ci deve essere uno spazio,
+  // a meno che subito dopo ci sia già punteggiatura o uno spazio/linea nuova.
+  t = t.replace(/(["»”'])\s*(?![.,;:!? \n\r])/g, "$1 ");
+
+  // Normalizza eventuali spazi multipli in singolo spazio
+  t = t.replace(/ {2,}/g, " ");
 
   return t;
 }
+
 
 // ===============================
 //   UPLOAD DOCX (più alias per compatibilità)
@@ -204,6 +232,7 @@ app.post("/api/ai", async (req, res) => {
    // 🎯 CORREZIONE
 if (mode === "correzione" || mode === "correzione-soft") {
       systemMessage = `
+      systemMessage = `
 Sei un correttore di bozze editoriale professionista per una casa editrice italiana.
 
 DEVI:
@@ -221,6 +250,10 @@ REGOLE TIPOGRAFICHE FERMENTO:
 - Nessuno spazio subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).
 - Nessuno spazio subito prima della chiusura delle virgolette ("Ciao", «Ciao»).
 - Nessuno spazio prima di punteggiatura (. , ; : ! ?).
+- Sequenze come "?...", "??...", "?!...", "???", devono diventare sempre "?". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.
+- Sequenze come "!...", "!!...", "!?...", "!!!", devono diventare sempre "!". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.
+- Alla fine di una frase ci deve essere SEMPRE un solo punto interrogativo o un solo punto esclamativo. Mai usare "??", "?!", "!!" o varianti.
+- Dopo la chiusura delle virgolette (“ ”, « » o ") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).
 
 È VIETATO:
 - Commentare.
@@ -231,6 +264,7 @@ REGOLE TIPOGRAFICHE FERMENTO:
 
 Restituisci ESCLUSIVAMENTE il testo corretto.
 `;
+
 
       userMessage = `
 Correggi il testo seguente:
