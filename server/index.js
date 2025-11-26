@@ -138,18 +138,24 @@ async function handleDocxUpload(req, res) {
     const buffer = await fsPromises.readFile(req.file.path);
 
     // 📄 GESTIONE PDF (per VALUTAZIONE)
-    if (ext === ".pdf") {
+        if (ext === ".pdf") {
       try {
         // import dinamico di pdf-parse (compatibile ESM/CJS)
         const pdfModule = await import("pdf-parse");
-        const pdfParse =
-          typeof pdfModule === "function"
-            ? pdfModule
-            : pdfModule.default || pdfModule;
+
+        // Cerchiamo la funzione giusta dentro il modulo
+        let pdfParse = null;
+        if (typeof pdfModule === "function") {
+          pdfParse = pdfModule;
+        } else if (typeof pdfModule.default === "function") {
+          pdfParse = pdfModule.default;
+        } else if (typeof pdfModule.PDFParse === "function") {
+          pdfParse = pdfModule.PDFParse;
+        }
 
         if (typeof pdfParse !== "function") {
           throw new Error(
-            "pdf-parse non è una funzione. Modulo caricato: " +
+            "pdf-parse non espone una funzione utilizzabile. Chiavi modulo: " +
               JSON.stringify(Object.keys(pdfModule))
           );
         }
@@ -177,24 +183,12 @@ async function handleDocxUpload(req, res) {
         await fsPromises.unlink(req.file.path).catch(() => {});
         return res.status(500).json({
           success: false,
-          error: "Errore durante la lettura del PDF: " + (err.message || String(err)),
+          error:
+            "Errore durante la lettura del PDF: " + (err.message || String(err)),
         });
       }
     }
 
-    // 📝 DOCX (correzioni + valutazioni)
-    if (ext === ".docx") {
-      const result = await mammoth.convertToHtml({ buffer });
-      const html = result.value || "";
-
-      await fsPromises.unlink(req.file.path).catch(() => {});
-
-      return res.json({
-        success: true,
-        type: "docx",
-        text: html,
-      });
-    }
 
     // altri formati: rifiutati
     await fsPromises.unlink(req.file.path).catch(() => {});
