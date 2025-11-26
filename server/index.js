@@ -208,28 +208,17 @@ app.post("/api/export-docx", async (req, res) => {
 //   API AI PRINCIPALE
 // ===============================
 
+// ===============================
+//   API AI PRINCIPALE
+// ===============================
 app.post("/api/ai", async (req, res) => {
   try {
-    const { mode, text, project, projectTitle, projectAuthor } = req.body;
-
-    console.log("Richiesta /api/ai ricevuta.");
-    console.log("Mode:", mode);
-    console.log("Lunghezza testo:", text ? text.length : 0);
-    console.log("Progetto:", project);
-    console.log("Titolo:", projectTitle);
-    console.log("Autore:", projectAuthor);
-
-    if (!text || !mode) {
-      return res.status(400).json({
-        success: false,
-        error: "text e mode sono obbligatori.",
-      });
-    }
+    const { text = "", mode, projectTitle = "", projectAuthor = "" } = req.body || {};
 
     let systemMessage = "";
     let userMessage = "";
 
-         // 🎯 CORREZIONE FERMENTO (rigida)
+    // 🎯 CORREZIONE FERMENTO (rigida)
     if (mode === "correzione" || mode === "correzione-soft") {
       systemMessage = [
         "Sei un correttore di bozze editoriale professionista per una casa editrice italiana.",
@@ -242,17 +231,17 @@ app.post("/api/ai", async (req, res) => {
         "- Mantenere identici paragrafi, a capo e struttura.",
         "",
         "REGOLE TIPOGRAFICHE FERMENTO:",
-        '- I puntini di sospensione devono essere SEMPRE esattamente tre: "...".',
-        '- Converti qualunque altra forma ("..", "....", "…..", "…") in "...".',
+        "- I puntini di sospensione devono essere SEMPRE esattamente tre: \"...\".",
+        "- Converti qualunque altra forma (\"..\", \"....\", \"…..\", \"…\") in \"...\".",
         "- Non introdurre puntini nuovi dove non ci sono.",
         "- Mantieni il tipo di virgolette usato nel testo di partenza.",
-        '- Nessuno spazio subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).',
-        '- Nessuno spazio subito prima della chiusura delle virgolette ("Ciao", «Ciao»).',
+        "- Nessuno spazio subito dopo l’apertura delle virgolette (\"Ciao\", «Ciao»).",
+        "- Nessuno spazio subito prima della chiusura delle virgolette (\"Ciao\", «Ciao»).",
         "- Nessuno spazio prima di punteggiatura (. , ; : ! ?).",
-        '- Sequenze come "?...", "??...", "?!...", "???", devono diventare sempre "?". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.',
-        '- Sequenze come "!...", "!!...", "!?...", "!!!", devono diventare sempre "!". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.',
+        "- Sequenze come \"?...\", \"??...\", \"?!...\", \"???\" devono diventare sempre \"?\". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.",
+        "- Sequenze come \"!...\", \"!!...\", \"!?...\", \"!!!\" devono diventare sempre \"!\". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.",
         "- Alla fine di una frase ci deve essere SEMPRE un solo punto interrogativo o un solo punto esclamativo. Mai usare \"??\", \"?!\", \"!!\" o varianti.",
-        '- Dopo la chiusura delle virgolette (“ ”, « » o ") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).',
+        "- Dopo la chiusura delle virgolette (“ ”, « » o \") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).",
         "",
         "È VIETATO:",
         "- Commentare.",
@@ -262,7 +251,7 @@ app.post("/api/ai", async (req, res) => {
         "- Introdurre testo aggiuntivo.",
         "",
         "Restituisci ESCLUSIVAMENTE il testo corretto."
-      ].join("\\n");
+      ].join("\n");
 
       userMessage = [
         "Correggi il testo seguente:",
@@ -273,39 +262,47 @@ app.post("/api/ai", async (req, res) => {
         "RISPONDI SOLO CON IL TESTO CORRETTO.",
         "Nessun commento, nessuna spiegazione, nessuna introduzione, nessuna lista, nessuna frase extra.",
         "Restituisci SOLO il testo corretto, identico nella struttura."
-      ].join("\\n");
+      ].join("\n");
     }
 
+    // 🌍 TRADUZIONE ITA → ENG
+    else if (mode === "traduzione-it-en") {
+      systemMessage = [
+        "Sei un traduttore professionista dall'italiano all'inglese.",
+        "Mantieni il significato e il tono del testo, ma usa un inglese naturale e scorrevole.",
+        "Non aggiungere spiegazioni, non commentare, non cambiare il contenuto.",
+        "Restituisci SOLO la traduzione inglese."
+      ].join("\n");
 
-      userMessage = `
-Traduci in inglese il seguente testo italiano:
-
-${text}
-`;
+      userMessage = [
+        "Traduci in inglese il seguente testo italiano:",
+        "",
+        text
+      ].join("\n");
     }
 
     // 📑 VALUTAZIONE MANOSCRITTO
     else if (mode === "valutazione-manoscritto") {
-      systemMessage = `
-Sei un editor professionale che valuta manoscritti per una casa editrice italiana.
-Scrivi una valutazione dettagliata, in HTML, del manoscritto fornito.
-`;
-      userMessage = `
-Valuta il seguente testo (manoscritto) e produci una scheda di valutazione in HTML:
+      systemMessage = [
+        "Sei un editor professionale che valuta manoscritti per una casa editrice italiana.",
+        "Devi scrivere una valutazione dettagliata, in HTML, del manoscritto fornito.",
+        "La valutazione serve all'editore per decidere se pubblicare il testo."
+      ].join("\n");
 
-${text}
-`;
+      userMessage = [
+        "Valuta il seguente testo (manoscritto) e produci una scheda di valutazione in HTML:",
+        "",
+        text
+      ].join("\n");
     }
 
+    // fallback di sicurezza
     if (!userMessage) {
       userMessage = text;
     }
 
-    const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
-
-    const response = await client.responses.create({
+    // 🔗 Chiamata a OpenAI
+    const response = await openai.responses.create({
       model: "gpt-4.1",
       temperature: 0,
       input: [
@@ -324,10 +321,12 @@ ${text}
       response.output?.[0]?.content?.[0]?.text ||
       "Errore: nessun testo generato.";
 
+    // 🔧 Applica le regole tipografiche Fermento
     const fixedText = applyTypographicFixes(aiText);
 
     console.log("Risposta OpenAI ricevuta, lunghezza:", fixedText.length);
 
+    // Salvataggio valutazione
     if (mode === "valutazione-manoscritto") {
       const evaluations = await loadEvaluations();
 
@@ -349,6 +348,7 @@ ${text}
       });
     }
 
+    // Altri mode: restituiamo solo il testo (già corretto tipograficamente)
     return res.json({
       success: true,
       result: fixedText,
@@ -365,6 +365,7 @@ ${text}
     });
   }
 });
+
 
 // ===============================
 //   GET lista valutazioni
