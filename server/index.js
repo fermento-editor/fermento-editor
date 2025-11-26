@@ -1,4 +1,4 @@
-// server/index.js - versione pulita Fermento
+// server/index.js - versione pulita Fermento + PDF
 
 import express from "express";
 import cors from "cors";
@@ -12,9 +12,7 @@ import fs from "fs";
 import fsPromises from "fs/promises";
 import { fileURLToPath } from "url";
 
-
 dotenv.config();
-
 
 // ===============================
 //   CLIENT OPENAI
@@ -24,7 +22,6 @@ const openai = new OpenAI({
 });
 
 console.log("OPENAI_API_KEY presente?", !!process.env.OPENAI_API_KEY);
-
 
 // ===============================
 //   PATH E CONFIGURAZIONI BASE
@@ -124,9 +121,8 @@ function applyTypographicFixes(text) {
   return t;
 }
 
-
 // ===============================
-//   UPLOAD DOCX (più alias per compatibilità)
+//   UPLOAD DOCX/PDF (DOCX per correzioni, PDF per valutazioni)
 // ===============================
 
 async function handleDocxUpload(req, res) {
@@ -141,12 +137,22 @@ async function handleDocxUpload(req, res) {
     const ext = path.extname(req.file.originalname).toLowerCase();
     const buffer = await fsPromises.readFile(req.file.path);
 
-     // 📄 GESTIONE PDF (per VALUTAZIONE)
+    // 📄 GESTIONE PDF (per VALUTAZIONE)
     if (ext === ".pdf") {
       try {
-        // import dinamico di pdf-parse (compatibile con ESM)
+        // import dinamico di pdf-parse (compatibile ESM/CJS)
         const pdfModule = await import("pdf-parse");
-        const pdfParse = pdfModule.default || pdfModule;
+        const pdfParse =
+          typeof pdfModule === "function"
+            ? pdfModule
+            : pdfModule.default || pdfModule;
+
+        if (typeof pdfParse !== "function") {
+          throw new Error(
+            "pdf-parse non è una funzione. Modulo caricato: " +
+              JSON.stringify(Object.keys(pdfModule))
+          );
+        }
 
         const data = await pdfParse(buffer);
         let txt = (data.text || "").trim();
@@ -171,11 +177,10 @@ async function handleDocxUpload(req, res) {
         await fsPromises.unlink(req.file.path).catch(() => {});
         return res.status(500).json({
           success: false,
-          error: "Errore durante la lettura del PDF",
+          error: "Errore durante la lettura del PDF: " + (err.message || String(err)),
         });
       }
     }
-
 
     // 📝 DOCX (correzioni + valutazioni)
     if (ext === ".docx") {
@@ -201,12 +206,10 @@ async function handleDocxUpload(req, res) {
     console.error("Errore upload DOCX/PDF:", err);
     return res.status(500).json({
       success: false,
-      error: "Errore durante l'import del file",
+      error: "Errore durante l'import del file: " + (err.message || String(err)),
     });
   }
 }
-
-
 
 // Rotte compatibili per l'upload
 app.post("/api/import-docx", upload.single("file"), handleDocxUpload);
@@ -245,10 +248,10 @@ app.post("/api/export-docx", async (req, res) => {
   }
 });
 
-
 // ===============================
 //   API AI PRINCIPALE
 // ===============================
+
 app.post("/api/ai", async (req, res) => {
   try {
     const { text = "", mode, projectTitle = "", projectAuthor = "" } = req.body || {};
@@ -269,17 +272,17 @@ app.post("/api/ai", async (req, res) => {
         "- Mantenere identici paragrafi, a capo e struttura.",
         "",
         "REGOLE TIPOGRAFICHE FERMENTO:",
-        "- I puntini di sospensione devono essere SEMPRE esattamente tre: \"...\".",
-        "- Converti qualunque altra forma (\"..\", \"....\", \"…..\", \"…\") in \"...\".",
+        '- I puntini di sospensione devono essere SEMPRE esattamente tre: "...".',
+        '- Converti qualunque altra forma ("..", "....", "…..", "…") in "...".',
         "- Non introdurre puntini nuovi dove non ci sono.",
         "- Mantieni il tipo di virgolette usato nel testo di partenza.",
-        "- Nessuno spazio subito dopo l’apertura delle virgolette (\"Ciao\", «Ciao»).",
-        "- Nessuno spazio subito prima della chiusura delle virgolette (\"Ciao\", «Ciao»).",
+        '- Nessuno spazio subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).',
+        '- Nessuno spazio subito prima della chiusura delle virgolette ("Ciao", «Ciao»).',
         "- Nessuno spazio prima di punteggiatura (. , ; : ! ?).",
-        "- Sequenze come \"?...\", \"??...\", \"?!...\", \"???\" devono diventare sempre \"?\". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.",
-        "- Sequenze come \"!...\", \"!!...\", \"!?...\", \"!!!\" devono diventare sempre \"!\". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.",
+        '- Sequenze come "?...", "??...", "?!...", "???", devono diventare sempre "?". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.',
+        '- Sequenze come "!...", "!!...", "!?...", "!!!", devono diventare sempre "!". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.',
         "- Alla fine di una frase ci deve essere SEMPRE un solo punto interrogativo o un solo punto esclamativo. Mai usare \"??\", \"?!\", \"!!\" o varianti.",
-        "- Dopo la chiusura delle virgolette (“ ”, « » o \") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).",
+        '- Dopo la chiusura delle virgolette (“ ”, « » o ") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).',
         "",
         "È VIETATO:",
         "- Commentare.",
@@ -339,7 +342,6 @@ app.post("/api/ai", async (req, res) => {
       userMessage = text;
     }
 
-    // 🔗 Chiamata a OpenAI
     const response = await openai.responses.create({
       model: "gpt-4.1",
       temperature: 0,
@@ -359,12 +361,10 @@ app.post("/api/ai", async (req, res) => {
       response.output?.[0]?.content?.[0]?.text ||
       "Errore: nessun testo generato.";
 
-    // 🔧 Applica le regole tipografiche Fermento
     const fixedText = applyTypographicFixes(aiText);
 
     console.log("Risposta OpenAI ricevuta, lunghezza:", fixedText.length);
 
-    // Salvataggio valutazione
     if (mode === "valutazione-manoscritto") {
       const evaluations = await loadEvaluations();
 
@@ -386,7 +386,6 @@ app.post("/api/ai", async (req, res) => {
       });
     }
 
-    // Altri mode: restituiamo solo il testo (già corretto tipograficamente)
     return res.json({
       success: true,
       result: fixedText,
@@ -394,7 +393,8 @@ app.post("/api/ai", async (req, res) => {
   } catch (err) {
     console.error("Errore /api/ai:", err);
     let msg = "Errore interno nel server AI";
-    if (err.response?.data?.error?.message) msg = err.response.data.error.message;
+    if (err.response?.data?.error?.message)
+      msg = err.response.data.error.message;
     else if (err.message) msg = err.message;
 
     return res.status(500).json({
@@ -404,10 +404,10 @@ app.post("/api/ai", async (req, res) => {
   }
 });
 
-
 // ===============================
 //   GET lista valutazioni
 // ===============================
+
 app.get("/api/evaluations", async (req, res) => {
   try {
     const list = await loadEvaluations();
@@ -427,6 +427,7 @@ app.get("/api/evaluations", async (req, res) => {
 // ===============================
 //   GET singola valutazione
 // ===============================
+
 app.get("/api/evaluations/:id", async (req, res) => {
   try {
     const list = await loadEvaluations();
@@ -455,6 +456,7 @@ app.get("/api/evaluations/:id", async (req, res) => {
 // ===============================
 //   AVVIO SERVER
 // ===============================
+
 app.listen(PORT, () => {
   console.log(`Fermento AI backend in ascolto su http://localhost:${PORT}`);
 });
