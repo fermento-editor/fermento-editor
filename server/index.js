@@ -11,11 +11,7 @@ import path from "path";
 import fs from "fs";
 import fsPromises from "fs/promises";
 import { fileURLToPath } from "url";
-import { createRequire } from "module";
 
-const require = createRequire(import.meta.url);
-const pdfParseModule = require("pdf-parse");
-const pdfParse = pdfParseModule.default || pdfParseModule;
 
 dotenv.config();
 
@@ -145,9 +141,13 @@ async function handleDocxUpload(req, res) {
     const ext = path.extname(req.file.originalname).toLowerCase();
     const buffer = await fsPromises.readFile(req.file.path);
 
-    // 📄 GESTIONE PDF (per VALUTAZIONE)
+     // 📄 GESTIONE PDF (per VALUTAZIONE)
     if (ext === ".pdf") {
       try {
+        // import dinamico di pdf-parse (compatibile con ESM)
+        const pdfModule = await import("pdf-parse");
+        const pdfParse = pdfModule.default || pdfModule;
+
         const data = await pdfParse(buffer);
         let txt = (data.text || "").trim();
 
@@ -175,6 +175,7 @@ async function handleDocxUpload(req, res) {
         });
       }
     }
+
 
     // 📝 DOCX (correzioni + valutazioni)
     if (ext === ".docx") {
