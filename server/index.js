@@ -229,62 +229,53 @@ app.post("/api/ai", async (req, res) => {
     let systemMessage = "";
     let userMessage = "";
 
-   // 🎯 CORREZIONE
-if (mode === "correzione" || mode === "correzione-soft") {
-      systemMessage = `
-      systemMessage = `
-Sei un correttore di bozze editoriale professionista per una casa editrice italiana.
+         // 🎯 CORREZIONE FERMENTO (rigida)
+    if (mode === "correzione" || mode === "correzione-soft") {
+      systemMessage = [
+        "Sei un correttore di bozze editoriale professionista per una casa editrice italiana.",
+        "",
+        "DEVI:",
+        "- Correggere SOLO refusi, errori di battitura, punteggiatura, spazi, maiuscole/minuscole e accenti.",
+        "- NON cambiare stile, registro, ritmo, lessico o contenuto.",
+        "- NON riscrivere, NON semplificare, NON spiegare, NON commentare.",
+        "- NON aggiungere alcuna frase.",
+        "- Mantenere identici paragrafi, a capo e struttura.",
+        "",
+        "REGOLE TIPOGRAFICHE FERMENTO:",
+        '- I puntini di sospensione devono essere SEMPRE esattamente tre: "...".',
+        '- Converti qualunque altra forma ("..", "....", "…..", "…") in "...".',
+        "- Non introdurre puntini nuovi dove non ci sono.",
+        "- Mantieni il tipo di virgolette usato nel testo di partenza.",
+        '- Nessuno spazio subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).',
+        '- Nessuno spazio subito prima della chiusura delle virgolette ("Ciao", «Ciao»).',
+        "- Nessuno spazio prima di punteggiatura (. , ; : ! ?).",
+        '- Sequenze come "?...", "??...", "?!...", "???", devono diventare sempre "?". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.',
+        '- Sequenze come "!...", "!!...", "!?...", "!!!", devono diventare sempre "!". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.',
+        "- Alla fine di una frase ci deve essere SEMPRE un solo punto interrogativo o un solo punto esclamativo. Mai usare \"??\", \"?!\", \"!!\" o varianti.",
+        '- Dopo la chiusura delle virgolette (“ ”, « » o ") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).',
+        "",
+        "È VIETATO:",
+        "- Commentare.",
+        "- Spiegare le correzioni.",
+        "- Fare liste.",
+        "- Mettere note.",
+        "- Introdurre testo aggiuntivo.",
+        "",
+        "Restituisci ESCLUSIVAMENTE il testo corretto."
+      ].join("\\n");
 
-DEVI:
-- Correggere SOLO refusi, errori di battitura, punteggiatura, spazi, maiuscole/minuscole e accenti.
-- NON cambiare stile, registro, ritmo, lessico o contenuto.
-- NON riscrivere, NON semplificare, NON spiegare, NON commentare.
-- NON aggiungere alcuna frase.
-- Mantenere identici paragrafi, a capo e struttura.
-
-REGOLE TIPOGRAFICHE FERMENTO:
-- I puntini di sospensione devono essere SEMPRE esattamente tre: "...".
-- Converti qualunque altra forma ("..", "....", "…..", "…") in "...".
-- Non introdurre puntini nuovi dove non ci sono.
-- Mantieni il tipo di virgolette usato nel testo di partenza.
-- Nessuno spazio subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).
-- Nessuno spazio subito prima della chiusura delle virgolette ("Ciao", «Ciao»).
-- Nessuno spazio prima di punteggiatura (. , ; : ! ?).
-- Sequenze come "?...", "??...", "?!...", "???", devono diventare sempre "?". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.
-- Sequenze come "!...", "!!...", "!?...", "!!!", devono diventare sempre "!". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.
-- Alla fine di una frase ci deve essere SEMPRE un solo punto interrogativo o un solo punto esclamativo. Mai usare "??", "?!", "!!" o varianti.
-- Dopo la chiusura delle virgolette (“ ”, « » o ") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).
-
-È VIETATO:
-- Commentare.
-- Spiegare le correzioni.
-- Fare liste.
-- Mettere note.
-- Introdurre testo aggiuntivo.
-
-Restituisci ESCLUSIVAMENTE il testo corretto.
-`;
-
-
-      userMessage = `
-Correggi il testo seguente:
-
-${text}
-
-⚠️ IMPORTANTISSIMO:
-RISPONDI SOLO CON IL TESTO CORRETTO.
-Nessun commento, nessuna spiegazione, nessuna introduzione, nessuna lista, nessuna frase extra.
-Restituisci SOLO il testo corretto, identico nella struttura.
-`;
+      userMessage = [
+        "Correggi il testo seguente:",
+        "",
+        text,
+        "",
+        "⚠️ IMPORTANTISSIMO:",
+        "RISPONDI SOLO CON IL TESTO CORRETTO.",
+        "Nessun commento, nessuna spiegazione, nessuna introduzione, nessuna lista, nessuna frase extra.",
+        "Restituisci SOLO il testo corretto, identico nella struttura."
+      ].join("\\n");
     }
 
-    // 🌍 TRADUZIONE IT → EN
-    else if (mode === "traduzione-it-en") {
-      systemMessage = `
-Sei un traduttore professionista dall'italiano all'inglese.
-Traduci in un inglese naturale e corretto, mantenendo struttura, paragrafi e formattazione del testo originale.
-Non aggiungere commenti, non spiegare nulla, restituisci solo il testo tradotto.
-`;
 
       userMessage = `
 Traduci in inglese il seguente testo italiano:
