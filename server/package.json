@@ -16,6 +16,7 @@
     "multer": "^2.0.2",
     "node-html-parser": "^7.0.1",
     "openai": "^4.104.0",
+    "pdf-parse": "^2.4.5",
     "pdf-parse-fixed": "^1.1.1",
     "pdfjs-dist": "^5.4.394",
     "pdfkit": "^0.17.2"
