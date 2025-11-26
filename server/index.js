@@ -135,42 +135,40 @@ async function handleDocxUpload(req, res) {
     }
 
     const ext = path.extname(req.file.originalname).toLowerCase();
-    const buffer = await fsPromises.readFile(req.file.path);
 
-    // 📄 GESTIONE PDF (per VALUTAZIONE)
-        if (ext === ".pdf") {
+    // ===============================
+    //   PDF → testo semplice → HTML
+    // ===============================
+    if (ext === ".pdf") {
       try {
-        // import dinamico di pdf-parse (compatibile ESM/CJS)
+        const buffer = await fsPromises.readFile(req.file.path);
+
+        // Import dinamico di pdf-parse v2/v3
         const pdfModule = await import("pdf-parse");
+        const { PDFParse } = pdfModule;
 
-        // Cerchiamo la funzione giusta dentro il modulo
-        let pdfParse = null;
-        if (typeof pdfModule === "function") {
-          pdfParse = pdfModule;
-        } else if (typeof pdfModule.default === "function") {
-          pdfParse = pdfModule.default;
-        } else if (typeof pdfModule.PDFParse === "function") {
-          pdfParse = pdfModule.PDFParse;
+        if (!PDFParse) {
+          throw new Error("PDFParse non trovato nel modulo pdf-parse");
         }
 
-        if (typeof pdfParse !== "function") {
-          throw new Error(
-            "pdf-parse non espone una funzione utilizzabile. Chiavi modulo: " +
-              JSON.stringify(Object.keys(pdfModule))
-          );
+        // Istanzia il parser (QUI serviva il new)
+        const parser = new PDFParse({ data: buffer });
+        const result = await parser.getText();
+        if (parser.destroy) {
+          await parser.destroy();
         }
 
-        const data = await pdfParse(buffer);
-        let txt = (data.text || "").trim();
+        const txt = result?.text || "";
 
-        // trasformiamo il testo in un HTML semplice a paragrafi
+        // Trasformiamo il testo in HTML a paragrafi (blocchi separati da righe vuote)
         const html = txt
-          .split(/\n{2,}/) // blocchi separati da righe vuote
+          .split(/\n{2,}/)
           .map((p) => p.trim())
           .filter((p) => p.length > 0)
           .map((p) => `<p>${p}</p>`)
           .join("\n");
 
+        // pulizia file temporaneo
         await fsPromises.unlink(req.file.path).catch(() => {});
 
         return res.json({
@@ -184,26 +182,42 @@ async function handleDocxUpload(req, res) {
         return res.status(500).json({
           success: false,
           error:
-            "Errore durante la lettura del PDF: " + (err.message || String(err)),
+            "Errore durante la lettura del PDF. Verifica che il file non sia solo un'immagine scansionata.",
         });
       }
     }
 
+    // ===============================
+    //   DOCX → HTML (mammoth)
+    // ===============================
+    if (ext !== ".docx") {
+      return res.status(400).json({
+        success: false,
+        error: "Formato non supportato. Carica un file .docx o .pdf",
+      });
+    }
 
-    // altri formati: rifiutati
+    const buffer = await fsPromises.readFile(req.file.path);
+    const result = await mammoth.convertToHtml({ buffer });
+    const html = result.value || "";
+
+    // pulizia file temporaneo
     await fsPromises.unlink(req.file.path).catch(() => {});
-    return res.status(400).json({
-      success: false,
-      error: "Formato non supportato. Carica un file .docx o .pdf",
+
+    return res.json({
+      success: true,
+      type: "docx",
+      text: html,
     });
   } catch (err) {
     console.error("Errore upload DOCX/PDF:", err);
     return res.status(500).json({
       success: false,
-      error: "Errore durante l'import del file: " + (err.message || String(err)),
+      error: "Errore durante l'import del file",
     });
   }
 }
+
 
 // Rotte compatibili per l'upload
 app.post("/api/import-docx", upload.single("file"), handleDocxUpload);
@@ -336,10 +350,11 @@ app.post("/api/ai", async (req, res) => {
       userMessage = text;
     }
 
-    const response = await openai.responses.create({
-      model: "gpt-4.1",
+        // 🔗 Chiamata a OpenAI (chat completions, compatibile ovunque)
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
       temperature: 0,
-      input: [
+      messages: [
         {
           role: "system",
           content: systemMessage || "",
@@ -352,10 +367,12 @@ app.post("/api/ai", async (req, res) => {
     });
 
     const aiText =
-      response.output?.[0]?.content?.[0]?.text ||
+      completion.choices?.[0]?.message?.content?.trim() ||
       "Errore: nessun testo generato.";
 
     const fixedText = applyTypographicFixes(aiText);
+
+
 
     console.log("Risposta OpenAI ricevuta, lunghezza:", fixedText.length);
 
