@@ -15,6 +15,16 @@ import { fileURLToPath } from "url";
 dotenv.config();
 
 // ===============================
+//   CLIENT OPENAI
+// ===============================
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+console.log("OPENAI_API_KEY presente?", !!process.env.OPENAI_API_KEY);
+
+
+// ===============================
 //   PATH E CONFIGURAZIONI BASE
 // ===============================
 
