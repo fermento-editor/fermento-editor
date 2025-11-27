@@ -14,8 +14,36 @@ import { fileURLToPath } from "url";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
-const pdfParseModule = require("pdf-parse");
-const pdfParse = pdfParseModule.default || pdfParseModule;
+
+// Caricamento robusto di pdf-parse (funziona sia in locale che su Render)
+const pdfParseRaw = require("pdf-parse");
+
+let pdfParse;
+
+if (typeof pdfParseRaw === "function") {
+  // Caso classico: pdf-parse v2 esporta direttamente una funzione
+  pdfParse = pdfParseRaw;
+} else if (typeof pdfParseRaw?.default === "function") {
+  // Caso: la funzione è sotto .default
+  pdfParse = pdfParseRaw.default;
+} else if (typeof pdfParseRaw?.PDFParse === "function") {
+  // Caso: modulo espone una classe PDFParse
+  const PDFParse = pdfParseRaw.PDFParse;
+  pdfParse = async function (buffer) {
+    const parser = new PDFParse({ data: buffer });
+    const text = await parser.getText();
+    if (typeof parser.destroy === "function") {
+      await parser.destroy();
+    }
+    return { text };
+  };
+} else {
+  console.error("Modulo pdf-parse non compatibile, parsing PDF disabilitato.");
+  pdfParse = async () => {
+    throw new Error("pdf-parse non configurato correttamente");
+  };
+}
+
 
 
 dotenv.config();
