@@ -46,10 +46,36 @@ const upload = multer({ dest: uploadDir });
 
 // file valutazioni
 const evaluationsPath = path.join(__dirname, "data", "evaluations.json");
-
 // file bestseller di riferimento
 const bestsellerPath = path.join(__dirname, "data", "bestseller_2025.json");
 
+// ===============================
+//   UTILITY: LETTURA/SCRITTURA VALUTAZIONI
+// ===============================
+
+async function loadEvaluations() {
+  try {
+    const data = await fsPromises.readFile(evaluationsPath, "utf8");
+    return JSON.parse(data);
+  } catch (err) {
+    if (err.code === "ENOENT") return [];
+    console.error("Errore loadEvaluations:", err);
+    return [];
+  }
+}
+
+async function saveEvaluations(list) {
+  try {
+    await fsPromises.mkdir(path.dirname(evaluationsPath), { recursive: true });
+    await fsPromises.writeFile(
+      evaluationsPath,
+      JSON.stringify(list, null, 2),
+      "utf8"
+    );
+  } catch (err) {
+    console.error("Errore saveEvaluations:", err);
+  }
+}
 
 // ===============================
 //   UTILITY: LETTURA BESTSELLER
@@ -66,20 +92,6 @@ async function loadBestsellers() {
     }
     console.error("Errore loadBestsellers:", err);
     return [];
-  }
-}
-
-
-async function saveEvaluations(list) {
-  try {
-    await fsPromises.mkdir(path.dirname(evaluationsPath), { recursive: true });
-    await fsPromises.writeFile(
-      evaluationsPath,
-      JSON.stringify(list, null, 2),
-      "utf8"
-    );
-  } catch (err) {
-    console.error("Errore saveEvaluations:", err);
   }
 }
 
@@ -334,7 +346,7 @@ app.post("/api/ai", async (req, res) => {
       ].join("\n");
     }
 
-        // 📑 VALUTAZIONE MANOSCRITTO – MODELLO FERMENTO (con cinema/serie TV + bestseller)
+    // 📑 VALUTAZIONE MANOSCRITTO – MODELLO FERMENTO (con cinema/serie TV + bestseller)
     else if (mode === "valutazione-manoscritto") {
       // Carica elenco bestseller dal file JSON
       const bestsellers = await loadBestsellers();
@@ -345,7 +357,7 @@ app.post("/api/ai", async (req, res) => {
         "Devi scrivere una scheda di valutazione EDITORIALE completa, in HTML pulito.",
         "La valutazione serve all'editore, NON all'autore: sii chiaro, professionale, concreto.",
         "",
-        "Di seguito trovi un elenco JSON dei 20 libri più venduti e rappresentativi del mercato editoriale italiano recente (2023–2025).",
+        "Di seguito trovi un elenco JSON di libri molto venduti e rappresentativi del mercato editoriale italiano recente (2023–2025).",
         "Ogni voce contiene: titolo, autore, genere, temi, stile e target di lettori.",
         "Usa questo elenco COME RIFERIMENTO per la sezione 12 (Analisi comparativa con i bestseller italiani 2025).",
         "",
@@ -434,7 +446,6 @@ app.post("/api/ai", async (req, res) => {
         text,
       ].join("\n");
     }
-
 
     // fallback di sicurezza
     if (!userMessage) {
