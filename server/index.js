@@ -279,9 +279,8 @@ app.post("/api/ai", async (req, res) => {
       mode,
       projectTitle = "",
       projectAuthor = "",
-      evaluationId, // ID della scheda di valutazione già salvata
+      evaluationId, // per l'editing guidato
     } = req.body || {};
-
 
     let systemMessage = "";
     let userMessage = "";
@@ -303,12 +302,12 @@ app.post("/api/ai", async (req, res) => {
         '- Converti qualunque altra forma ("..", "....", "…..", "…") in "...".',
         "- Non introdurre puntini nuovi dove non ci sono.",
         "- Mantieni il tipo di virgolette usato nel testo di partenza.",
-        '- Nessuno spazio subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).',
-        '- Nessuno spazio subito prima della chiusura delle virgolette ("Ciao", «Ciao»).',
+        '- Nessuno spazio subito dopo l’apertura delle virgolette (\"Ciao\", «Ciao»).',
+        '- Nessuno spazio subito prima della chiusura delle virgolette (\"Ciao\", «Ciao»).',
         "- Nessuno spazio prima di punteggiatura (. , ; : ! ?).",
-        '- Sequenze come "?...", "??...", "?!...", "???", devono diventare sempre "?". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.',
-        '- Sequenze come "!...", "!!...", "!?...", "!!!", devono diventare sempre "!". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.',
-        '- Dopo la chiusura delle virgolette (“ ”, « » o ") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).',
+        '- Sequenze come \"?...\", \"??...\", \"?!...\", \"???\" devono diventare sempre \"?\".',
+        '- Sequenze come \"!...\", \"!!...\", \"!?...\", \"!!!\" devono diventare sempre \"!\".',
+        '- Dopo la chiusura delle virgolette (“ ”, « » o \") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia punteggiatura.',
         "",
         "È VIETATO:",
         "- Commentare.",
@@ -348,23 +347,22 @@ app.post("/api/ai", async (req, res) => {
       ].join("\n");
     }
 
-       // 📑 VALUTAZIONE MANOSCRITTO – MODELLO FERMENTO (con cinema/serie TV + bestseller + ranking + grammatica)
+    // 📑 VALUTAZIONE MANOSCRITTO – MODELLO FERMENTO (15 sezioni, scheda MOLTO CRITICA)
     else if (mode === "valutazione-manoscritto") {
-      // Carica elenco bestseller dal file JSON
       const bestsellers = await loadBestsellers();
       const bestsellersJson = JSON.stringify(bestsellers, null, 2);
 
       systemMessage = [
-        "Sei un editor professionale che valuta manoscritti per una casa editrice italiana.",
-"Stai producendo una SCHEDA DI VALUTAZIONE EDITORIALE che sarà usata successivamente da un altro modello di ChatGPT per effettuare l’editing automatico del libro.",
-"La scheda deve essere uno strumento TECNICO e OPERATIVO: l’editing dovrà basarsi direttamente su quello che scrivi qui.",
-"La valutazione serve all’editore e al modulo di editing automatico, NON all’autore: sii chiaro, preciso e SPietato, mai consolatorio.",
-"È preferibile sovrastimare i problemi piuttosto che sottovalutarli: segnala tutti i difetti che potrebbero richiedere interventi di revisione, taglio, riscrittura o riorganizzazione.",
-"Ogni sezione deve aiutare l’editing a capire cosa cambiare, dove intervenire e con quale profondità (editing leggero, moderato, profondo).",
-
+        "Sei un editor professionale che valuta manoscritti per la casa editrice Fermento.",
+        "Stai producendo una SCHEDA DI VALUTAZIONE EDITORIALE che sarà usata successivamente da un altro modello di ChatGPT per effettuare l’editing automatico del libro.",
+        "La scheda deve essere uno strumento TECNICO e OPERATIVO: l’editing dovrà basarsi direttamente su quello che scrivi qui.",
+        "La valutazione serve all’editore e al modulo di editing automatico, NON all’autore: sii chiaro, preciso e spietato, mai consolatorio.",
+        "È preferibile sovrastimare i problemi piuttosto che sottovalutarli: segnala tutti i difetti che potrebbero richiedere interventi di revisione, taglio, riscrittura o riorganizzazione.",
+        "Ogni sezione deve aiutare l’editing a capire cosa cambiare, dove intervenire e con quale profondità (editing leggero, moderato, profondo).",
+        "",
         "Di seguito trovi un elenco JSON di libri molto venduti e rappresentativi del mercato editoriale italiano recente (2023–2025).",
         "Ogni voce contiene: titolo, autore, genere, temi, stile e target di lettori.",
-        "Usa questo elenco COME RIFERIMENTO per la sezione 12 (Analisi comparativa con i bestseller italiani 2025).",
+        "Usa questo elenco COME RIFERIMENTO per la sezione 14 (Analisi comparativa con i bestseller italiani 2025).",
         "",
         bestsellersJson,
         "",
@@ -376,45 +374,51 @@ app.post("/api/ai", async (req, res) => {
         "<p><strong>Titolo:</strong> [titolo del progetto]</p>",
         "<p><strong>Autore:</strong> [autore del progetto]</p>",
         "",
-        "<h3>2. Sintesi del manoscritto</h3>",
+        "<h3>2. Genere e target</h3>",
+        "<p>Indica con precisione in quale combinazione di generi si colloca il manoscritto (es. narrativa rosa contemporanea, drama, autobiografia romanzata, ecc.) e descrivi il target principale di lettori (es. romance adulto/young adult, prevalenza di lettrici interessate a storie di amore intenso, sofferenza, rinascita, superamento delle difficoltà, ecc.).</p>",
+        "",
+        "<h3>3. Sintesi del manoscritto</h3>",
         "<p>Fornisci un riassunto breve, chiaro e oggettivo della storia, senza esprimere giudizi.</p>",
         "",
-        "<h3>3. Punti di forza</h3>",
+        "<h3>4. Analisi grammaticale e ortografica</h3>",
+        "<p>Valuta il livello di correttezza linguistica del manoscritto (ortografia, grammatica, sintassi, punteggiatura, coerenza tipografica). Indica se il testo necessita di un intervento minimo, moderato o significativo di correzione di bozze e quali sono le aree più problematiche. Non fornire esempi testuali, ma valuta in modo complessivo il carico di lavoro richiesto. Assicurati che questa valutazione sia coerente con il punteggio assegnato alla qualità grammaticale nella sezione 15 (Ranking editoriale Fermento).</p>",
+        "",
+        "<h3>5. Punti di forza</h3>",
         "<ul>",
         "<li>…</li>",
         "</ul>",
         "",
-        "<h3>4. Criticità principali</h3>",
+        "<h3>6. Criticità principali</h3>",
         "<ul>",
         "<li>…</li>",
         "</ul>",
         "",
-        "<h3>5. Stile e voce narrativa</h3>",
-        "<p>Descrivi lo stile dell’autore, la chiarezza, il ritmo, la musicalità della frase, eventuali problemi di leggibilità, e il tipo di voce narrativa utilizzata.</p>",
+        "<h3>7. Stile e voce narrativa</h3>",
+        "<p>Descrivi lo stile dell’autore, la chiarezza, il ritmo, la musicalità della frase, eventuali problemi di leggibilità e il tipo di voce narrativa utilizzata.</p>",
         "",
-        "<h3>6. Struttura e ritmo</h3>",
+        "<h3>8. Struttura e ritmo</h3>",
         "<p>Analizza l’andamento della storia, la divisione in capitoli, la gestione dei tempi morti, dei colpi di scena e delle accelerazioni narrative.</p>",
         "",
-        "<h3>7. Personaggi</h3>",
+        "<h3>9. Personaggi</h3>",
         "<p>Valuta la credibilità, l’evoluzione, la funzione narrativa e la capacità empatica dei personaggi principali e secondari.</p>",
         "",
-        "<h3>8. Target e posizionamento</h3>",
-        "<p>Indica il pubblico ideale (età, interessi) e il genere editoriale di riferimento. Spiega in quale segmento di mercato si colloca il manoscritto.</p>",
+        "<h3>10. Target e posizionamento</h3>",
+        "<p>Indica il pubblico ideale (età, interessi) e il genere editoriale di riferimento. Spiega in quale segmento di mercato si colloca il manoscritto e in quale scaffale di libreria o categoria online verrebbe inserito.</p>",
         "",
-        "<h3>9. Possibilità di adattamento per cinema e serie TV</h3>",
+        "<h3>11. Possibilità di adattamento per cinema e serie TV</h3>",
         "<p>Valuta se la storia si presta meglio a un film, una miniserie o una serie lunga, motivando la scelta.</p>",
         "<p>Commenta cosa facilita l’adattamento (mondo narrativo, dialoghi, archi dei personaggi, struttura episodica) e cosa lo ostacola (eccesso di interiorità, costi produttivi alti, mancanza di conflitto visivo).</p>",
         "<p>Concludi con un giudizio sintetico sulla reale possibilità di sviluppo audiovisivo.</p>",
         "",
-        "<h3>10. Potenziale commerciale</h3>",
-        "<p>Giudizio sintetico sul potenziale economico del libro, considerando trend, titoli comparabili e interesse del pubblico contemporaneo.</p>",
+        "<h3>12. Potenziale commerciale</h3>",
+        "<p>Esprimi un giudizio sintetico sul potenziale economico del libro, considerando trend, titoli comparabili e l’interesse del pubblico contemporaneo. Indica se il testo è adatto a un pubblico di nicchia o più ampio.</p>",
         "",
-        "<h3>11. Giudizio finale</h3>",
-        "<p><strong>Valutazione complessiva:</strong> fornisci un paragrafo conclusivo su pubblicabilità e condizioni necessarie per un’eventuale edizione.</p>",
+        "<h3>13. Giudizio finale</h3>",
+        "<p><strong>Valutazione complessiva:</strong> fornisci un paragrafo conclusivo su pubblicabilità e condizioni necessarie per un’eventuale edizione (editing leggero, editing profondo, riscrittura parziale, ecc.).</p>",
         "<p><strong>Punteggio:</strong> X/10</p>",
         "",
-        "<h3>12. Analisi comparativa con i bestseller italiani (2025)</h3>",
-        "<p>Confronta il manoscritto con i bestseller italiani presenti nell'elenco JSON fornito sopra.</p>",
+        "<h3>14. Analisi comparativa con i bestseller italiani (2025)</h3>",
+        "<p>Confronta il manoscritto con i bestseller italiani presenti nell'elenco JSON fornito all'inizio.</p>",
         "<ul>",
         "<li>Indica a quali bestseller si avvicina e perché (genere, tono, temi, target, struttura).</li>",
         "<li>Identifica i 3 titoli più simili.</li>",
@@ -422,7 +426,7 @@ app.post("/api/ai", async (req, res) => {
         "<li>Evidenzia cosa manca al manoscritto per avvicinarsi ai titoli top di mercato.</li>",
         "</ul>",
         "",
-        "<h3>13. Ranking editoriale Fermento</h3>",
+        "<h3>15. Ranking editoriale Fermento</h3>",
         "<p><strong>Punteggio totale (0–100):</strong> calcolalo secondo questi criteri:</p>",
         "<ul>",
         "<li><strong>Potenziale commerciale:</strong> 0–25</li>",
@@ -431,7 +435,14 @@ app.post("/api/ai", async (req, res) => {
         "<li><strong>Coerenza di target e posizionamento:</strong> 0–10</li>",
         "<li><strong>Somiglianza con i bestseller italiani 2025:</strong> 0–10</li>",
         "<li><strong>Qualità grammaticale e ortografica:</strong> 0–10</li>",
-        "</ul>",        
+        "</ul>",
+        "<p>Assicurati che la descrizione testuale della qualità grammaticale sia COERENTE con il punteggio assegnato:</p>",
+        "<ul>",
+        "<li><strong>0–3/10:</strong> qualità scarsa, molti errori, necessario un intervento SIGNIFICATIVO di correzione di bozze.</li>",
+        "<li><strong>4–6/10:</strong> qualità media, diversi errori, necessario un intervento MODERATO di correzione di bozze.</li>",
+        "<li><strong>7–8/10:</strong> buona qualità, pochi errori, serve solo una revisione LEGGERA.</li>",
+        "<li><strong>9–10/10:</strong> ottima qualità, quasi nessun errore, intervento MINIMO.</li>",
+        "</ul>",
         "<p><strong>Livello di priorità:</strong> scegli una delle seguenti categorie:</p>",
         "<ul>",
         "<li><strong>Alta priorità:</strong> punteggio ≥ 75</li>",
@@ -440,18 +451,26 @@ app.post("/api/ai", async (req, res) => {
         "</ul>",
         "<p>Inserisci una motivazione sintetica (massimo 4 righe) che giustifichi la categoria assegnata, considerando l’equilibrio tra qualità narrativa, potenziale commerciale, somiglianza col mercato attuale e qualità grammaticale.</p>",
         "",
-        "<h3>14. Analisi grammaticale e ortografica</h3>",
-        "<p>Valuta il livello di correttezza linguistica del manoscritto: ortografia, grammatica, sintassi, punteggiatura e coerenza tipografica. Indica se il testo necessita di un intervento minimo, moderato o significativo di correzione di bozze e quali sono le aree più problematiche (refusi frequenti, punteggiatura incoerente, accordi verbali, uso scorretto delle maiuscole o delle virgolette, ecc.). Non fornire esempi testuali, ma valuta in modo complessivo il carico di lavoro richiesto per ripulire il testo.</p>",
+        "La scheda deve essere MOLTO CRITICA: non minimizzare i problemi, non addolcire il giudizio. È meglio evidenziare una criticità in più piuttosto che ignorarla.",
+        "Evita formule vaghe come \"qualche piccola cosa da rivedere\": specifica sempre il tipo di problema (strutturale, di ritmo, di chiarezza, di coerenza, di linguaggio) e il livello di intervento richiesto.",
+        "REGOLE IMPORTANTI:",
+        "- Scrivi SEMPRE in italiano.",
+        "- RESTITUISCI SOLO HTML NUDO: nessun markdown, nessun ``` e nessun blocco di codice.",
+        "- Compila TUTTE le sezioni dall’1 alla 15.",
+        "- Usa SOLO questi tag HTML: <h2>, <h3>, <p>, <ul>, <li>, <strong>.",
+        "- Non rivolgerti mai direttamente all’autore.",
+        "- Non aggiungere testo fuori dalla scheda.",
+      ].join("\n");
+
+      userMessage = [
+        "Crea una scheda di valutazione editoriale per il seguente manoscritto.",
+        projectTitle ? `Titolo del progetto: ${projectTitle}` : "",
+        projectAuthor ? `Autore del progetto: ${projectAuthor}` : "",
         "",
-       "La scheda deve essere MOLTO CRITICA: non minimizzare i problemi, non addolcire il giudizio. È meglio evidenziare una criticità in più piuttosto che ignorarla.",
-"Evita formule vaghe come \"qualche piccola cosa da rivedere\": specifica sempre il tipo di problema (strutturale, di ritmo, di chiarezza, di coerenza, di linguaggio) e il livello di intervento richiesto.",
-"REGOLE IMPORTANTI:",
-"- Scrivi SEMPRE in italiano.",
-"- RESTITUISCI SOLO HTML NUDO: nessun markdown, nessun ``` e nessun blocco di codice.",
-"- Compila TUTTE le sezioni dall’1 alla 15.",
-"- Usa SOLO questi tag HTML: <h2>, <h3>, <p>, <ul>, <li>, <strong>.",
-"- Non rivolgerti mai direttamente all’autore.",
-"- Non aggiungere testo fuori dalla scheda."
+        "Testo del manoscritto:",
+        text,
+      ].join("\n");
+    }
 
     // ✂️ EDITING AUTOMATICO GUIDATO DALLA VALUTAZIONE
     else if (
@@ -459,7 +478,6 @@ app.post("/api/ai", async (req, res) => {
       mode === "editing-moderato" ||
       mode === "editing-leggero"
     ) {
-      // 1) Recupera la scheda di valutazione salvata
       if (!evaluationId) {
         return res.status(400).json({
           success: false,
@@ -480,25 +498,17 @@ app.post("/api/ai", async (req, res) => {
       }
 
       const evalHtml = evalItem.html || "";
-
-      // 2) Profilo di editing in base alla modalità scelta
       let editingProfile = "";
 
       if (mode === "editing-profondo") {
         editingProfile =
-          "MODALITÀ: EDITING PROFONDO. Puoi intervenire in modo ESTESO su frasi, paragrafi e struttura locale della prosa. " +
-          "Snellisci parti ridondanti, riorganizza paragrafi poco chiari, migliora ritmo e chiarezza, elimina ripetizioni, rendi la narrazione più efficace " +
-          "pur mantenendo intatti trama, eventi fondamentali, personaggi e punto di vista. Se una scena è debole o confusa, riscrivila in modo più forte e leggibile.";
+          "MODALITÀ: EDITING PROFONDO. Puoi intervenire in modo ESTESO su frasi, paragrafi e struttura locale della prosa. Snellisci parti ridondanti, riorganizza paragrafi poco chiari, migliora ritmo e chiarezza, elimina ripetizioni, rendi la narrazione più efficace pur mantenendo intatti trama, eventi fondamentali, personaggi e punto di vista.";
       } else if (mode === "editing-moderato") {
         editingProfile =
-          "MODALITÀ: EDITING MODERATO. Mantieni lo stile e la voce dell'autore il più possibile, ma migliora chiarezza, scorrevolezza, ritmo e coesione. " +
-          "Sistema frasi troppo lunghe o contorte, elimina ripetizioni inutili, chiarisci passaggi ambigui. Non cambiare la struttura delle scene, " +
-          "ma rendi il testo più pulito e leggibile, seguendo le criticità indicate nella scheda di valutazione.";
+          "MODALITÀ: EDITING MODERATO. Mantieni lo stile e la voce dell'autore il più possibile, ma migliora chiarezza, scorrevolezza, ritmo e coesione. Sistema frasi troppo lunghe o contorte, elimina ripetizioni inutili, chiarisci passaggi ambigui. Non cambiare la struttura delle scene.";
       } else if (mode === "editing-leggero") {
         editingProfile =
-          "MODALITÀ: EDITING LEGGERO. Intervieni principalmente su grammatica, ortografia, punteggiatura e piccoli aggiustamenti di stile. " +
-          "Non modificare struttura, ordine delle informazioni o stile generale dell'autore, se non quando è strettamente necessario per evitare errori o fraintendimenti. " +
-          "Questo livello equivale a una correzione avanzata, guidata dalle indicazioni della scheda di valutazione.";
+          "MODALITÀ: EDITING LEGGERO. Intervieni principalmente su grammatica, ortografia, punteggiatura e piccoli aggiustamenti di stile. Non modificare struttura, ordine delle informazioni o stile generale dell'autore se non quando strettamente necessario.";
       }
 
       systemMessage = [
@@ -506,16 +516,16 @@ app.post("/api/ai", async (req, res) => {
         "Un altro modello di ChatGPT ha già prodotto una SCHEDA DI VALUTAZIONE EDITORIALE dettagliata.",
         "Ora il tuo compito NON è più valutare, ma MODIFICARE il testo in base a quella scheda.",
         "",
-        "La scheda di valutazione sarà utilizzata come BRIEF OPERATIVO: devi seguire le indicazioni che contiene per migliorare il testo.",
+        "La scheda di valutazione è il BRIEF OPERATIVO: devi seguire le indicazioni che contiene per migliorare il testo.",
         "Non essere timido: è meglio applicare le correzioni suggerite in modo chiaro e deciso che lasciare il testo com'è.",
         "",
         editingProfile,
         "",
         "IMPORTANTE:",
         "- Mantieni intatti trama, eventi fondamentali, personaggi principali e il loro arco narrativo.",
-        "- Non aggiungere nuove scene, nuovi personaggi o nuovi snodi narrativi che non siano impliciti nel testo.",
-        "- Non cambiare il punto di vista narrativo (prima persona, terza persona, ecc.) se non esplicitamente richiesto dalla scheda.",
-        "- Mantieni coerente il registro (colto, medio, informale) ma rendilo più efficace e fluido.",
+        "- Non aggiungere nuove scene, nuovi personaggi o nuovi snodi narrativi non presenti nel testo.",
+        "- Non cambiare il punto di vista narrativo (prima persona, terza persona, ecc.) se non esplicitamente richiesto.",
+        "- Mantieni coerente il registro, ma rendilo più efficace e fluido.",
         "",
         "USERAI LA SEGUENTE SCHEDA DI VALUTAZIONE EDITORIALE COME GUIDA PER L'EDITING:",
         "--- INIZIO SCHEDA DI VALUTAZIONE EDITORIALE (HTML) ---",
@@ -524,26 +534,16 @@ app.post("/api/ai", async (req, res) => {
         "",
         "REGOLE DI OUTPUT:",
         "- Restituisci SOLO il testo editato, senza commenti, senza spiegazioni e senza HTML aggiuntivo.",
-        "- Mantieni la stessa struttura di base del testo ricevuto (paragrafi, capoversi, eventuali tag HTML di base se presenti).",
+        "- Mantieni la stessa struttura di base del testo ricevuto (paragrafi, capoversi, eventuali tag HTML semplici se presenti).",
         "- Non inserire note, segnaposto, commenti tra parentesi o indicazioni all'editore/autore.",
       ].join("\n");
 
       userMessage = [
         "Di seguito trovi il testo da editare.",
-        "Applica l'editing secondo la modalità specificata e seguendo le indicazioni della scheda di valutazione editoriale che hai ricevuto nel messaggio di sistema.",
+        "Applica l'editing secondo la modalità specificata e seguendo le indicazioni della scheda di valutazione editoriale.",
         "",
         "TESTO DA EDITARE:",
         text,
-      ].join("\n");
-    }
-
-      userMessage = [
-        "Crea una scheda di valutazione editoriale per il seguente manoscritto.",
-        projectTitle ? `Titolo del progetto: ${projectTitle}` : "",
-        projectAuthor ? `Autore del progetto: ${projectAuthor}` : "",
-        "",
-        "Testo del manoscritto:",
-        text
       ].join("\n");
     }
 
@@ -552,19 +552,13 @@ app.post("/api/ai", async (req, res) => {
       userMessage = text;
     }
 
-    // 🔗 Chiamata a OpenAI (chat completions)
+    // 🔗 Chiamata a OpenAI
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0,
       messages: [
-        {
-          role: "system",
-          content: systemMessage || "",
-        },
-        {
-          role: "user",
-          content: userMessage,
-        },
+        { role: "system", content: systemMessage || "" },
+        { role: "user", content: userMessage },
       ],
     });
 
@@ -573,12 +567,10 @@ app.post("/api/ai", async (req, res) => {
       "Errore: nessun testo generato.";
 
     const fixedText = applyTypographicFixes(aiText);
-
     console.log("Risposta OpenAI ricevuta, lunghezza:", fixedText.length);
 
     if (mode === "valutazione-manoscritto") {
       const evaluations = await loadEvaluations();
-
       const newEval = {
         id: Date.now().toString(),
         title: projectTitle || "Titolo mancante",
@@ -586,7 +578,6 @@ app.post("/api/ai", async (req, res) => {
         date: new Date().toISOString(),
         html: fixedText,
       };
-
       evaluations.push(newEval);
       await saveEvaluations(evaluations);
 
@@ -604,9 +595,11 @@ app.post("/api/ai", async (req, res) => {
   } catch (err) {
     console.error("Errore /api/ai:", err);
     let msg = "Errore interno nel server AI";
-    if (err.response?.data?.error?.message)
+    if (err.response?.data?.error?.message) {
       msg = err.response.data.error.message;
-    else if (err.message) msg = err.message;
+    } else if (err.message) {
+      msg = err.message;
+    }
 
     return res.status(500).json({
       success: false,
@@ -614,6 +607,7 @@ app.post("/api/ai", async (req, res) => {
     });
   }
 });
+
 
 // ===============================
 //   GET lista valutazioni
