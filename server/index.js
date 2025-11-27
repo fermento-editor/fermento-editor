@@ -47,20 +47,28 @@ const upload = multer({ dest: uploadDir });
 // file valutazioni
 const evaluationsPath = path.join(__dirname, "data", "evaluations.json");
 
+// file bestseller di riferimento
+const bestsellerPath = path.join(__dirname, "data", "bestseller_2025.json");
+
+
 // ===============================
-//   UTILITY: LETTURA/SCRITTURA VALUTAZIONI
+//   UTILITY: LETTURA BESTSELLER
 // ===============================
 
-async function loadEvaluations() {
+async function loadBestsellers() {
   try {
-    const data = await fsPromises.readFile(evaluationsPath, "utf8");
+    const data = await fsPromises.readFile(bestsellerPath, "utf8");
     return JSON.parse(data);
   } catch (err) {
-    if (err.code === "ENOENT") return [];
-    console.error("Errore loadEvaluations:", err);
+    if (err.code === "ENOENT") {
+      console.warn("bestseller_2025.json non trovato, uso lista vuota.");
+      return [];
+    }
+    console.error("Errore loadBestsellers:", err);
     return [];
   }
 }
+
 
 async function saveEvaluations(list) {
   try {
@@ -326,12 +334,22 @@ app.post("/api/ai", async (req, res) => {
       ].join("\n");
     }
 
-    // 📑 VALUTAZIONE MANOSCRITTO – MODELLO FERMENTO (con cinema/serie TV)
+        // 📑 VALUTAZIONE MANOSCRITTO – MODELLO FERMENTO (con cinema/serie TV + bestseller)
     else if (mode === "valutazione-manoscritto") {
+      // Carica elenco bestseller dal file JSON
+      const bestsellers = await loadBestsellers();
+      const bestsellersJson = JSON.stringify(bestsellers, null, 2);
+
       systemMessage = [
         "Sei un editor professionale che valuta manoscritti per una casa editrice italiana.",
         "Devi scrivere una scheda di valutazione EDITORIALE completa, in HTML pulito.",
         "La valutazione serve all'editore, NON all'autore: sii chiaro, professionale, concreto.",
+        "",
+        "Di seguito trovi un elenco JSON dei 20 libri più venduti e rappresentativi del mercato editoriale italiano recente (2023–2025).",
+        "Ogni voce contiene: titolo, autore, genere, temi, stile e target di lettori.",
+        "Usa questo elenco COME RIFERIMENTO per la sezione 12 (Analisi comparativa con i bestseller italiani 2025).",
+        "",
+        bestsellersJson,
         "",
         "FORMATTO OBBLIGATORIO (usa ESATTAMENTE queste sezioni e questi tag HTML):",
         "",
@@ -378,6 +396,23 @@ app.post("/api/ai", async (req, res) => {
         "<p><strong>Valutazione complessiva:</strong> breve paragrafo che riassume se, come e a quali condizioni il testo è consigliabile alla pubblicazione.</p>",
         "<p><strong>Punteggio:</strong> X/10 (usa un numero da 1 a 10).</p>",
         "",
+        "<h3>12. Analisi comparativa con i bestseller italiani (2025)</h3>",
+        "<p>Valuta quanto il manoscritto si avvicina ai libri elencati nel JSON precedente, considerando:</p>",
+        "<ul>",
+        "<li>genere e sottogenere</li>",
+        "<li>tono e stile</li>",
+        "<li>temi principali</li>",
+        "<li>target di lettori</li>",
+        "<li>struttura narrativa</li>",
+        "</ul>",
+        "<p>Nella sezione 12 indica chiaramente:</p>",
+        "<ul>",
+        "<li>i 3 libri più simili (titolo + autore) con una breve motivazione;</li>",
+        "<li>il livello di similarità complessivo su una scala 0–100;</li>",
+        "<li>gli elementi mancanti che impediscono al manoscritto di avvicinarsi ai bestseller;</li>",
+        "<li>il potenziale di mercato rispetto ai trend italiani del 2025.</li>",
+        "</ul>",
+        "",
         "REGOLE IMPORTANTI:",
         "- Scrivi SEMPRE in italiano.",
         "- RESTITUISCI SOLO HTML NUDO: nessun blocco di codice, nessun ``` e nessun markdown.",
@@ -387,7 +422,7 @@ app.post("/api/ai", async (req, res) => {
         "- Usa SOLO i tag HTML indicati: <h2>, <h3>, <p>, <ul>, <li>, <strong>.",
         "- Non aggiungere spiegazioni fuori dalla scheda.",
         "- Non rivolgerti direttamente all'autore.",
-        "Restituisci SOLO il codice HTML completo della scheda, senza testo aggiuntivo fuori dai tag.",
+        "Restituisci SOLO il codice HTML completo della scheda, senza testo aggiuntivo fuori dai tag."
       ].join("\n");
 
       userMessage = [
@@ -399,6 +434,7 @@ app.post("/api/ai", async (req, res) => {
         text,
       ].join("\n");
     }
+
 
     // fallback di sicurezza
     if (!userMessage) {

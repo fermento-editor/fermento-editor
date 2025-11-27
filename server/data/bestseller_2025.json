@@ -1,0 +1,154 @@
+[
+  {
+    "titolo": "La catastrofica visita allo zoo",
+    "autore": "Joël Dicker",
+    "genere": "Narrativa contemporanea / famiglie",
+    "temi": ["mistero","infanzia","famiglia","amicizia"],
+    "stile": "avvincente, suspense, accessibile",
+    "target": "adulti e giovani adulti"
+  },
+  {
+    "titolo": "Spera. L'autobiografia",
+    "autore": "Papa Francesco",
+    "genere": "Autobiografia / saggistica",
+    "temi": ["fede","spiritualità","società","ricerca"],
+    "stile": "intimo, riflessivo",
+    "target": "adulti"
+  },
+  {
+    "titolo": "Tatà",
+    "autore": "Valérie Perrin",
+    "genere": "Narrativa contemporanea",
+    "temi": ["memoria","famiglia","identità","amore"],
+    "stile": "poetico, emotivo",
+    "target": "adulti"
+  },
+  {
+    "titolo": "Socrate, Agata e il futuro. L'arte di invecchiare con filosofia",
+    "autore": "Beppe Severgnini",
+    "genere": "Saggistica / riflessione",
+    "temi": ["filosofia","vita","società","età"],
+    "stile": "chiaro, divulgativo",
+    "target": "adulti"
+  },
+  {
+    "titolo": "L'ultimo segreto",
+    "autore": "Dan Brown",
+    "genere": "Thriller / avventura",
+    "temi": ["conflitto","mistero","azione","ficzione storica"],
+    "stile": "veloce, dinamico",
+    "target": "adulti e adulti-giovani"
+  },
+  {
+    "titolo": "Verrà l’alba, starai bene",
+    "autore": "Gianluca Gotto",
+    "genere": "Narrativa contemporanea / spirituale",
+    "temi": ["spiritualità","cresita personale","identità","relazioni"],
+    "stile": "intimo, riflessivo",
+    "target": "adulti"
+  },
+  {
+    "titolo": "La levatrice",
+    "autore": "Bibbiana Cau",
+    "genere": "Narrativa storica / di genere",
+    "temi": ["storia","donne","società","lotta"],
+    "stile": "dramatico, coinvolgente",
+    "target": "adulti"
+  },
+  {
+    "titolo": "L'amore mio non muore",
+    "autore": "Roberto Saviano",
+    "genere": "Narrativa contemporanea / drammatico",
+    "temi": ["amore","società","problemi sociali","realismo"],
+    "stile": "impegnato, realistico",
+    "target": "adulti"
+  },
+  {
+    "titolo": "Il mio nome è Emilia del Valle",
+    "autore": "Isabel Allende",
+    "genere": "Narrativa storica / saga familiare",
+    "temi": ["famiglia","storia","migrazioni","identità"],
+    "stile": "descrittivo, epico",
+    "target": "adulti"
+  },
+  {
+    "titolo": "Io che ti ho voluto così bene",
+    "autore": "Roberta Recchia",
+    "genere": "Narrativa contemporanea / sentimento",
+    "temi": ["amore","perdita","redenzione","relazioni"],
+    "stile": "intenso, emotivo",
+    "target": "adulti"
+  },
+  {
+    "titolo": "Il pappagallo muto. Una storia di Sara",
+    "autore": "Maurizio de Giovanni",
+    "genere": "Narrativa contemporanea / letteraria",
+    "temi": ["famiglia","società","dramma","relazioni"],
+    "stile": "realistico, profondo",
+    "target": "adulti"
+  },
+  {
+    "titolo": "Cuori magnetici. Love me love me vol.1",
+    "autore": "Stefania S.",
+    "genere": "Narrativa sentimentale / romance",
+    "temi": ["amore","relazioni","giovani","passione"],
+    "stile": "leggero, moderno",
+    "target": "giovani adulti"
+  },
+  {
+    "titolo": "Dynasty. Dagli Agnelli ai Del Vecchio, dai Benetton ai De Benedetti: il crollo delle dinastie dei potenti",
+    "autore": "Mario Giordano",
+    "genere": "Saggistica / attualità",
+    "temi": ["economia","società","potere","storia contemporanea"],
+    "stile": "informativo, analitico",
+    "target": "adulti"
+  },
+  {
+    "titolo": "Il digiuno intermittente a modo mio. I protocolli, i benefici, le ricette",
+    "autore": "Tiziano Scarparo",
+    "genere": "Benessere / salute",
+    "temi": ["salute","dieta","stile di vita","wellness"],
+    "stile": "pratico, divulgativo",
+    "target": "adulti"
+  },
+  {
+    "titolo": "Guida internazionale dei campeggi ACSI 2025",
+    "autore": "Pleinair",
+    "genere": "Guida / tempo libero",
+    "temi": ["viaggi","natura","turismo","svago"],
+    "stile": "informativo, utile",
+    "target": "viaggiatori, famiglie"
+  },
+  {
+    "titolo": "La nuova dieta del dottor Mozzi. Nuovi contenuti, spunti e interpretazioni per prevenire, curare, guarire",
+    "autore": "Pietro Mozzi & Martino Mozzi",
+    "genere": "Salute / alimentazione",
+    "temi": ["dieta","salute","nutrizione","benessere"],
+    "stile": "saggistico, divulgativo",
+    "target": "adulti"
+  },
+  {
+    "titolo": "Dove comincia l'uomo. Ibridi e migranti: una breve storia dell'avventura umana",
+    "autore": "Telmo Pievani & Giuseppe Remuzzi",
+    "genere": "Saggio / scientifico",
+    "temi": ["scienza","storia","antropologia","società"],
+    "stile": "divulgativo, riflessivo",
+    "target": "adulti"
+  },
+  {
+    "titolo": "Non ci sono buone notizie. L'anno più bello di mia madre, nonostante tutto",
+    "autore": "Andrea Rizzoli",
+    "genere": "Narrativa contemporanea / riflessione sociale",
+    "temi": ["famiglia","società","dramma","speranza"],
+    "stile": "intenso, realistico",
+    "target": "adulti"
+  },
+  {
+    "titolo": "Istella mea",
+    "autore": "Ciriaco Offeddu",
+    "genere": "Narrativa contemporanea / fantasy",
+    "temi": ["realismo magico","identità","mistero","magia"],
+    "stile": "magico, evocativo",
+    "target": "adulti e giovani adulti"
+  }
+]
