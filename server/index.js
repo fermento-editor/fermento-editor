@@ -315,7 +315,7 @@ app.post("/api/ai", async (req, res) => {
 
     // 📑 VALUTAZIONE MANOSCRITTO – MODELLO FERMENTO (con cinema/serie TV)
     else if (mode === "valutazione-manoscritto") {
-      systemMessage = [
+           systemMessage = [
         "Sei un editor professionale che valuta manoscritti per una casa editrice italiana.",
         "Devi scrivere una scheda di valutazione EDITORIALE completa, in HTML pulito.",
         "La valutazione serve all'editore, NON all'autore: sii chiaro, professionale, concreto.",
@@ -367,12 +367,16 @@ app.post("/api/ai", async (req, res) => {
         "",
         "REGOLE IMPORTANTI:",
         "- Scrivi SEMPRE in italiano.",
+        "- RESTITUISCI SOLO HTML NUDO: nessun blocco di codice, nessun ``` e nessun markdown.",
+        "- NON scrivere mai ```html o ``` all'inizio o alla fine.",
+        "- NON usare elenchi con puntini \"•\" o trattini \"-\": se ti servono elenchi usa SOLO <ul><li>.",
         "- Compila tu stesso tutte le sezioni in HTML, non lasciare segnaposti tra parentesi quadre.",
         "- Usa SOLO i tag HTML indicati: <h2>, <h3>, <p>, <ul>, <li>, <strong>.",
         "- Non aggiungere spiegazioni fuori dalla scheda.",
         "- Non rivolgerti direttamente all'autore.",
-        "Restituisci SOLO il codice HTML completo della scheda, senza testo aggiuntivo fuori dai tag.",
+        "Restituisci SOLO il codice HTML completo della scheda, senza testo aggiuntivo fuori dai tag."
       ].join("\n");
+
 
       userMessage = [
         "Crea una scheda di valutazione editoriale per il seguente manoscritto.",
