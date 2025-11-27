@@ -100,7 +100,7 @@ function applyTypographicFixes(text) {
   t = t.replace(/(["«“])\s+/g, "$1");
 
   // Rimuove spazi PRIMA di virgolette di chiusura (" » ” ’)
-  // (nota: lasciamo ' qui perché è corretto rimuovere lo spazio PRIMA di ' )
+  // (incluso l'apostrofo, es: " l'opera" → "l'opera")
   t = t.replace(/\s+(["»”'])/g, "$1");
 
   // Normalizza doppie virgolette consecutive tipo ""testo""
@@ -115,7 +115,7 @@ function applyTypographicFixes(text) {
   t = t.replace(/[!?]{2,}/g, (match) => match[match.length - 1]);
 
   // 🔹 SPAZIO DOPO VIRGOLETTE DI CHIUSURA 🔹
-  // ATTENZIONE: qui abbiamo tolto l'apostrofo ' dal gruppo, così "l'opera" NON diventa "l' opera"
+  // ATTENZIONE: qui NON c'è l'apostrofo → "l'opera" resta "l'opera"
   t = t.replace(/(["»”])\s*(?![.,;:!? \n\r])/g, "$1 ");
 
   // Normalizza spazi multipli → singolo spazio
@@ -123,7 +123,6 @@ function applyTypographicFixes(text) {
 
   return t;
 }
-
 
 // ===============================
 //   UPLOAD DOCX/PDF
@@ -269,12 +268,12 @@ app.post("/api/ai", async (req, res) => {
         '- Converti qualunque altra forma ("..", "....", "…..", "…") in "...".',
         "- Non introdurre puntini nuovi dove non ci sono.",
         "- Mantieni il tipo di virgolette usato nel testo di partenza.",
-        '- Nessuno spazio subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).',
-        '- Nessuno spazio subito prima della chiusura delle virgolette ("Ciao", «Ciao»).',
+        '- Nessuno spazio subito dopo l’apertura delle virgolette (\"Ciao\", «Ciao»).',
+        '- Nessuno spazio subito prima della chiusura delle virgolette (\"Ciao\", «Ciao»).',
         "- Nessuno spazio prima di punteggiatura (. , ; : ! ?).",
-        '- Sequenze come "?...", "??...", "?!...", "???", devono diventare sempre "?". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.',
-        '- Sequenze come "!...", "!!...", "!?...", "!!!", devono diventare sempre "!". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.',
-        '- Dopo la chiusura delle virgolette (“ ”, « » o ") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).',
+        '- Sequenze come \"?...\", \"??...\", \"?!...\", \"???\", devono diventare sempre \"?\". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.',
+        '- Sequenze come \"!...\", \"!!...\", \"!?...\", \"!!!\", devono diventare sempre \"!\". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.',
+        '- Dopo la chiusura delle virgolette (“ ”, « » o \") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).',
         "",
         "È VIETATO:",
         "- Commentare.",
@@ -314,7 +313,7 @@ app.post("/api/ai", async (req, res) => {
       ].join("\n");
     }
 
-       // 📑 VALUTAZIONE MANOSCRITTO – MODELLO FERMENTO (con cinema/serie TV)
+    // 📑 VALUTAZIONE MANOSCRITTO – MODELLO FERMENTO (con cinema/serie TV)
     else if (mode === "valutazione-manoscritto") {
       systemMessage = [
         "Sei un editor professionale che valuta manoscritti per una casa editrice italiana.",
@@ -372,7 +371,7 @@ app.post("/api/ai", async (req, res) => {
         "- Usa SOLO i tag HTML indicati: <h2>, <h3>, <p>, <ul>, <li>, <strong>.",
         "- Non aggiungere spiegazioni fuori dalla scheda.",
         "- Non rivolgerti direttamente all'autore.",
-        "Restituisci SOLO il codice HTML completo della scheda, senza testo aggiuntivo fuori dai tag."
+        "Restituisci SOLO il codice HTML completo della scheda, senza testo aggiuntivo fuori dai tag.",
       ].join("\n");
 
       userMessage = [
@@ -381,10 +380,9 @@ app.post("/api/ai", async (req, res) => {
         projectAuthor ? `Autore del progetto: ${projectAuthor}` : "",
         "",
         "Testo del manoscritto:",
-        text
+        text,
       ].join("\n");
     }
-
 
     // fallback di sicurezza
     if (!userMessage) {
