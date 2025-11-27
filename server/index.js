@@ -279,7 +279,9 @@ app.post("/api/ai", async (req, res) => {
       mode,
       projectTitle = "",
       projectAuthor = "",
+      evaluationId, // ID della scheda di valutazione già salvata
     } = req.body || {};
+
 
     let systemMessage = "";
     let userMessage = "";
@@ -354,9 +356,12 @@ app.post("/api/ai", async (req, res) => {
 
       systemMessage = [
         "Sei un editor professionale che valuta manoscritti per una casa editrice italiana.",
-        "Devi scrivere una scheda di valutazione EDITORIALE completa, in HTML pulito.",
-        "La valutazione serve all'editore, NON all'autore: sii chiaro, professionale, concreto.",
-        "",
+"Stai producendo una SCHEDA DI VALUTAZIONE EDITORIALE che sarà usata successivamente da un altro modello di ChatGPT per effettuare l’editing automatico del libro.",
+"La scheda deve essere uno strumento TECNICO e OPERATIVO: l’editing dovrà basarsi direttamente su quello che scrivi qui.",
+"La valutazione serve all’editore e al modulo di editing automatico, NON all’autore: sii chiaro, preciso e SPietato, mai consolatorio.",
+"È preferibile sovrastimare i problemi piuttosto che sottovalutarli: segnala tutti i difetti che potrebbero richiedere interventi di revisione, taglio, riscrittura o riorganizzazione.",
+"Ogni sezione deve aiutare l’editing a capire cosa cambiare, dove intervenire e con quale profondità (editing leggero, moderato, profondo).",
+
         "Di seguito trovi un elenco JSON di libri molto venduti e rappresentativi del mercato editoriale italiano recente (2023–2025).",
         "Ogni voce contiene: titolo, autore, genere, temi, stile e target di lettori.",
         "Usa questo elenco COME RIFERIMENTO per la sezione 12 (Analisi comparativa con i bestseller italiani 2025).",
@@ -426,7 +431,7 @@ app.post("/api/ai", async (req, res) => {
         "<li><strong>Coerenza di target e posizionamento:</strong> 0–10</li>",
         "<li><strong>Somiglianza con i bestseller italiani 2025:</strong> 0–10</li>",
         "<li><strong>Qualità grammaticale e ortografica:</strong> 0–10</li>",
-        "</ul>",
+        "</ul>",        
         "<p><strong>Livello di priorità:</strong> scegli una delle seguenti categorie:</p>",
         "<ul>",
         "<li><strong>Alta priorità:</strong> punteggio ≥ 75</li>",
@@ -438,14 +443,99 @@ app.post("/api/ai", async (req, res) => {
         "<h3>14. Analisi grammaticale e ortografica</h3>",
         "<p>Valuta il livello di correttezza linguistica del manoscritto: ortografia, grammatica, sintassi, punteggiatura e coerenza tipografica. Indica se il testo necessita di un intervento minimo, moderato o significativo di correzione di bozze e quali sono le aree più problematiche (refusi frequenti, punteggiatura incoerente, accordi verbali, uso scorretto delle maiuscole o delle virgolette, ecc.). Non fornire esempi testuali, ma valuta in modo complessivo il carico di lavoro richiesto per ripulire il testo.</p>",
         "",
-        "REGOLE IMPORTANTI:",
-        "- Scrivi SEMPRE in italiano.",
-        "- RESTITUISCI SOLO HTML NUDO: nessun markdown, nessun ``` e nessun blocco di codice.",
-        "- Compila TUTTE le sezioni dall’1 alla 14.",
-        "- Usa SOLO questi tag HTML: <h2>, <h3>, <p>, <ul>, <li>, <strong>.",
-        "- Non rivolgerti mai direttamente all’autore.",
-        "- Non aggiungere testo fuori dalla scheda."
+       "La scheda deve essere MOLTO CRITICA: non minimizzare i problemi, non addolcire il giudizio. È meglio evidenziare una criticità in più piuttosto che ignorarla.",
+"Evita formule vaghe come \"qualche piccola cosa da rivedere\": specifica sempre il tipo di problema (strutturale, di ritmo, di chiarezza, di coerenza, di linguaggio) e il livello di intervento richiesto.",
+"REGOLE IMPORTANTI:",
+"- Scrivi SEMPRE in italiano.",
+"- RESTITUISCI SOLO HTML NUDO: nessun markdown, nessun ``` e nessun blocco di codice.",
+"- Compila TUTTE le sezioni dall’1 alla 15.",
+"- Usa SOLO questi tag HTML: <h2>, <h3>, <p>, <ul>, <li>, <strong>.",
+"- Non rivolgerti mai direttamente all’autore.",
+"- Non aggiungere testo fuori dalla scheda."
+
+    // ✂️ EDITING AUTOMATICO GUIDATO DALLA VALUTAZIONE
+    else if (
+      mode === "editing-profondo" ||
+      mode === "editing-moderato" ||
+      mode === "editing-leggero"
+    ) {
+      // 1) Recupera la scheda di valutazione salvata
+      if (!evaluationId) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "evaluationId mancante: per fare l'editing è necessario indicare l'ID della scheda di valutazione.",
+        });
+      }
+
+      const evaluations = await loadEvaluations();
+      const evalItem = evaluations.find((e) => e.id === evaluationId);
+
+      if (!evalItem) {
+        return res.status(404).json({
+          success: false,
+          error:
+            "Scheda di valutazione non trovata per l'ID specificato. Impossibile procedere con l'editing.",
+        });
+      }
+
+      const evalHtml = evalItem.html || "";
+
+      // 2) Profilo di editing in base alla modalità scelta
+      let editingProfile = "";
+
+      if (mode === "editing-profondo") {
+        editingProfile =
+          "MODALITÀ: EDITING PROFONDO. Puoi intervenire in modo ESTESO su frasi, paragrafi e struttura locale della prosa. " +
+          "Snellisci parti ridondanti, riorganizza paragrafi poco chiari, migliora ritmo e chiarezza, elimina ripetizioni, rendi la narrazione più efficace " +
+          "pur mantenendo intatti trama, eventi fondamentali, personaggi e punto di vista. Se una scena è debole o confusa, riscrivila in modo più forte e leggibile.";
+      } else if (mode === "editing-moderato") {
+        editingProfile =
+          "MODALITÀ: EDITING MODERATO. Mantieni lo stile e la voce dell'autore il più possibile, ma migliora chiarezza, scorrevolezza, ritmo e coesione. " +
+          "Sistema frasi troppo lunghe o contorte, elimina ripetizioni inutili, chiarisci passaggi ambigui. Non cambiare la struttura delle scene, " +
+          "ma rendi il testo più pulito e leggibile, seguendo le criticità indicate nella scheda di valutazione.";
+      } else if (mode === "editing-leggero") {
+        editingProfile =
+          "MODALITÀ: EDITING LEGGERO. Intervieni principalmente su grammatica, ortografia, punteggiatura e piccoli aggiustamenti di stile. " +
+          "Non modificare struttura, ordine delle informazioni o stile generale dell'autore, se non quando è strettamente necessario per evitare errori o fraintendimenti. " +
+          "Questo livello equivale a una correzione avanzata, guidata dalle indicazioni della scheda di valutazione.";
+      }
+
+      systemMessage = [
+        "Sei un editor professionale che esegue l'EDITING di un manoscritto per la casa editrice Fermento.",
+        "Un altro modello di ChatGPT ha già prodotto una SCHEDA DI VALUTAZIONE EDITORIALE dettagliata.",
+        "Ora il tuo compito NON è più valutare, ma MODIFICARE il testo in base a quella scheda.",
+        "",
+        "La scheda di valutazione sarà utilizzata come BRIEF OPERATIVO: devi seguire le indicazioni che contiene per migliorare il testo.",
+        "Non essere timido: è meglio applicare le correzioni suggerite in modo chiaro e deciso che lasciare il testo com'è.",
+        "",
+        editingProfile,
+        "",
+        "IMPORTANTE:",
+        "- Mantieni intatti trama, eventi fondamentali, personaggi principali e il loro arco narrativo.",
+        "- Non aggiungere nuove scene, nuovi personaggi o nuovi snodi narrativi che non siano impliciti nel testo.",
+        "- Non cambiare il punto di vista narrativo (prima persona, terza persona, ecc.) se non esplicitamente richiesto dalla scheda.",
+        "- Mantieni coerente il registro (colto, medio, informale) ma rendilo più efficace e fluido.",
+        "",
+        "USERAI LA SEGUENTE SCHEDA DI VALUTAZIONE EDITORIALE COME GUIDA PER L'EDITING:",
+        "--- INIZIO SCHEDA DI VALUTAZIONE EDITORIALE (HTML) ---",
+        evalHtml,
+        "--- FINE SCHEDA DI VALUTAZIONE EDITORIALE (HTML) ---",
+        "",
+        "REGOLE DI OUTPUT:",
+        "- Restituisci SOLO il testo editato, senza commenti, senza spiegazioni e senza HTML aggiuntivo.",
+        "- Mantieni la stessa struttura di base del testo ricevuto (paragrafi, capoversi, eventuali tag HTML di base se presenti).",
+        "- Non inserire note, segnaposto, commenti tra parentesi o indicazioni all'editore/autore.",
       ].join("\n");
+
+      userMessage = [
+        "Di seguito trovi il testo da editare.",
+        "Applica l'editing secondo la modalità specificata e seguendo le indicazioni della scheda di valutazione editoriale che hai ricevuto nel messaggio di sistema.",
+        "",
+        "TESTO DA EDITARE:",
+        text,
+      ].join("\n");
+    }
 
       userMessage = [
         "Crea una scheda di valutazione editoriale per il seguente manoscritto.",
