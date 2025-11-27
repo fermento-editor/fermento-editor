@@ -11,40 +11,6 @@ import path from "path";
 import fs from "fs";
 import fsPromises from "fs/promises";
 import { fileURLToPath } from "url";
-import { createRequire } from "module";
-
-const require = createRequire(import.meta.url);
-
-// Caricamento robusto di pdf-parse (funziona sia in locale che su Render)
-const pdfParseRaw = require("pdf-parse");
-
-let pdfParse;
-
-if (typeof pdfParseRaw === "function") {
-  // Caso classico: pdf-parse v2 esporta direttamente una funzione
-  pdfParse = pdfParseRaw;
-} else if (typeof pdfParseRaw?.default === "function") {
-  // Caso: la funzione è sotto .default
-  pdfParse = pdfParseRaw.default;
-} else if (typeof pdfParseRaw?.PDFParse === "function") {
-  // Caso: modulo espone una classe PDFParse
-  const PDFParse = pdfParseRaw.PDFParse;
-  pdfParse = async function (buffer) {
-    const parser = new PDFParse({ data: buffer });
-    const text = await parser.getText();
-    if (typeof parser.destroy === "function") {
-      await parser.destroy();
-    }
-    return { text };
-  };
-} else {
-  console.error("Modulo pdf-parse non compatibile, parsing PDF disabilitato.");
-  pdfParse = async () => {
-    throw new Error("pdf-parse non configurato correttamente");
-  };
-}
-
-
 
 dotenv.config();
 
@@ -173,8 +139,31 @@ async function handleUpload(req, res) {
     if (ext === ".pdf") {
       try {
         const buffer = await fsPromises.readFile(req.file.path);
-        const result = await pdfParse(buffer); // funzione CJS
-        const text = result.text || "";
+
+        // Import dinamico di pdf-parse (compatibile con varie versioni)
+        const pdfModule = await import("pdf-parse");
+        let text = "";
+
+        if (typeof pdfModule.default === "function") {
+          // Caso comune: la funzione è sotto .default
+          const result = await pdfModule.default(buffer);
+          text = result.text || "";
+        } else if (typeof pdfModule === "function") {
+          // Caso raro: il modulo è direttamente una funzione
+          const result = await pdfModule(buffer);
+          text = result.text || "";
+        } else if (typeof pdfModule.PDFParse === "function") {
+          // Caso: il modulo espone una classe PDFParse
+          const PDFParse = pdfModule.PDFParse;
+          const parser = new PDFParse({ data: buffer });
+          const parsedText = await parser.getText();
+          if (typeof parser.destroy === "function") {
+            await parser.destroy();
+          }
+          text = parsedText || "";
+        } else {
+          throw new Error("Modulo pdf-parse non compatibile");
+        }
 
         // pulizia file temporaneo
         await fsPromises.unlink(req.file.path).catch(() => {});
@@ -298,12 +287,12 @@ app.post("/api/ai", async (req, res) => {
         '- Converti qualunque altra forma ("..", "....", "…..", "…") in "...".',
         "- Non introdurre puntini nuovi dove non ci sono.",
         "- Mantieni il tipo di virgolette usato nel testo di partenza.",
-        '- Nessuno spazio subito dopo l’apertura delle virgolette (\"Ciao\", «Ciao»).',
-        '- Nessuno spazio subito prima della chiusura delle virgolette (\"Ciao\", «Ciao»).',
+        '- Nessuno spazio subito dopo l’apertura delle virgolette ("Ciao", «Ciao»).',
+        '- Nessuno spazio subito prima della chiusura delle virgolette ("Ciao", «Ciao»).',
         "- Nessuno spazio prima di punteggiatura (. , ; : ! ?).",
-        '- Sequenze come \"?...\", \"??...\", \"?!...\", \"???\", devono diventare sempre \"?\". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.',
-        '- Sequenze come \"!...\", \"!!...\", \"!?...\", \"!!!\", devono diventare sempre \"!\". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.',
-        '- Dopo la chiusura delle virgolette (“ ”, « » o \") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).',
+        '- Sequenze come "?...", "??...", "?!...", "???", devono diventare sempre "?". Mai lasciare puntini o ripetizioni dopo il punto interrogativo.',
+        '- Sequenze come "!...", "!!...", "!?...", "!!!", devono diventare sempre "!". Mai lasciare puntini o ripetizioni dopo il punto esclamativo.',
+        '- Dopo la chiusura delle virgolette (“ ”, « » o ") ci deve essere SEMPRE uno spazio prima della parola successiva, a meno che subito dopo ci sia un segno di punteggiatura (. , ; : ! ?).',
         "",
         "È VIETATO:",
         "- Commentare.",
@@ -345,7 +334,7 @@ app.post("/api/ai", async (req, res) => {
 
     // 📑 VALUTAZIONE MANOSCRITTO – MODELLO FERMENTO (con cinema/serie TV)
     else if (mode === "valutazione-manoscritto") {
-           systemMessage = [
+      systemMessage = [
         "Sei un editor professionale che valuta manoscritti per una casa editrice italiana.",
         "Devi scrivere una scheda di valutazione EDITORIALE completa, in HTML pulito.",
         "La valutazione serve all'editore, NON all'autore: sii chiaro, professionale, concreto.",
@@ -404,9 +393,8 @@ app.post("/api/ai", async (req, res) => {
         "- Usa SOLO i tag HTML indicati: <h2>, <h3>, <p>, <ul>, <li>, <strong>.",
         "- Non aggiungere spiegazioni fuori dalla scheda.",
         "- Non rivolgerti direttamente all'autore.",
-        "Restituisci SOLO il codice HTML completo della scheda, senza testo aggiuntivo fuori dai tag."
+        "Restituisci SOLO il codice HTML completo della scheda, senza testo aggiuntivo fuori dai tag.",
       ].join("\n");
-
 
       userMessage = [
         "Crea una scheda di valutazione editoriale per il seguente manoscritto.",
