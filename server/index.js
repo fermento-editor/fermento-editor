@@ -314,20 +314,77 @@ app.post("/api/ai", async (req, res) => {
       ].join("\n");
     }
 
-    // 📑 VALUTAZIONE MANOSCRITTO
+       // 📑 VALUTAZIONE MANOSCRITTO – MODELLO FERMENTO (con cinema/serie TV)
     else if (mode === "valutazione-manoscritto") {
       systemMessage = [
         "Sei un editor professionale che valuta manoscritti per una casa editrice italiana.",
-        "Devi scrivere una valutazione dettagliata, in HTML, del manoscritto fornito.",
-        "La valutazione serve all'editore per decidere se pubblicare il testo.",
+        "Devi scrivere una scheda di valutazione EDITORIALE completa, in HTML pulito.",
+        "La valutazione serve all'editore, NON all'autore: sii chiaro, professionale, concreto.",
+        "",
+        "FORMATTO OBBLIGATORIO (usa ESATTAMENTE queste sezioni e questi tag HTML):",
+        "",
+        "<h2>Valutazione editoriale – Fermento</h2>",
+        "",
+        "<h3>1. Dati di base</h3>",
+        "<p><strong>Titolo:</strong> [titolo]</p>",
+        "<p><strong>Autore:</strong> [autore]</p>",
+        "",
+        "<h3>2. Sintesi del manoscritto</h3>",
+        "<p>Breve riassunto chiaro e concreto della storia, senza giudizi.</p>",
+        "",
+        "<h3>3. Punti di forza</h3>",
+        "<ul>",
+        "<li>…</li>",
+        "</ul>",
+        "",
+        "<h3>4. Criticità principali</h3>",
+        "<ul>",
+        "<li>…</li>",
+        "</ul>",
+        "",
+        "<h3>5. Stile e voce narrativa</h3>",
+        "<p>Analisi dello stile, tono, chiarezza, eventuali problemi di ritmo fraseologico.</p>",
+        "",
+        "<h3>6. Struttura e ritmo</h3>",
+        "<p>Commento sull'andamento della storia, gestione dei capitoli, tempi morti, accelerazioni.</p>",
+        "",
+        "<h3>7. Personaggi</h3>",
+        "<p>Valutazione dei personaggi principali: credibilità, evoluzione, empatia.</p>",
+        "",
+        "<h3>8. Target e posizionamento</h3>",
+        "<p>Indica il pubblico ideale (età, interessi) e il genere/editoria di riferimento.</p>",
+        "",
+        "<h3>9. Possibilità di adattamento per cinema e serie TV</h3>",
+        "<p>Valuta se la storia si presta meglio a un film singolo, miniserie o serie lunga, motivando la scelta.</p>",
+        "<p>Commenta quali elementi del manoscritto aiutano l'adattamento (mondo narrativo, personaggi, struttura in archi/episodi) e quali lo ostacolano (eccesso di interiorità non visuale, costi produttivi troppo alti, trama poco serializzabile, ecc.).</p>",
+        "<p>Concludi con un giudizio sintetico sulla realistica possibilità di sviluppo audiovisivo.</p>",
+        "",
+        "<h3>10. Potenziale commerciale</h3>",
+        "<p>Giudizio sintetico sul potenziale di vendita editoriale, comparando se utile ad altri titoli o trend di mercato.</p>",
+        "",
+        "<h3>11. Giudizio finale</h3>",
+        "<p><strong>Valutazione complessiva:</strong> breve paragrafo che riassume se, come e a quali condizioni il testo è consigliabile alla pubblicazione.</p>",
+        "<p><strong>Punteggio:</strong> X/10 (usa un numero da 1 a 10).</p>",
+        "",
+        "REGOLE IMPORTANTI:",
+        "- Scrivi SEMPRE in italiano.",
+        "- Compila tu stesso tutte le sezioni in HTML, non lasciare segnaposti tra parentesi quadre.",
+        "- Usa SOLO i tag HTML indicati: <h2>, <h3>, <p>, <ul>, <li>, <strong>.",
+        "- Non aggiungere spiegazioni fuori dalla scheda.",
+        "- Non rivolgerti direttamente all'autore.",
+        "Restituisci SOLO il codice HTML completo della scheda, senza testo aggiuntivo fuori dai tag."
       ].join("\n");
 
       userMessage = [
-        "Valuta il seguente testo (manoscritto) e produci una scheda di valutazione in HTML:",
+        "Crea una scheda di valutazione editoriale per il seguente manoscritto.",
+        projectTitle ? `Titolo del progetto: ${projectTitle}` : "",
+        projectAuthor ? `Autore del progetto: ${projectAuthor}` : "",
         "",
-        text,
+        "Testo del manoscritto:",
+        text
       ].join("\n");
     }
+
 
     // fallback di sicurezza
     if (!userMessage) {
