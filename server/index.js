@@ -140,30 +140,24 @@ async function handleUpload(req, res) {
       try {
         const buffer = await fsPromises.readFile(req.file.path);
 
-        // Import dinamico di pdf-parse (compatibile con varie versioni)
-        const pdfModule = await import("pdf-parse");
-        let text = "";
+        // Import dinamico di pdf-parse-fixed (più robusto per ambienti diversi)
+        const pdfModule = await import("pdf-parse-fixed");
+        let pdfParseFn = null;
 
         if (typeof pdfModule.default === "function") {
-          // Caso comune: la funzione è sotto .default
-          const result = await pdfModule.default(buffer);
-          text = result.text || "";
+          pdfParseFn = pdfModule.default;
         } else if (typeof pdfModule === "function") {
-          // Caso raro: il modulo è direttamente una funzione
-          const result = await pdfModule(buffer);
-          text = result.text || "";
-        } else if (typeof pdfModule.PDFParse === "function") {
-          // Caso: il modulo espone una classe PDFParse
-          const PDFParse = pdfModule.PDFParse;
-          const parser = new PDFParse({ data: buffer });
-          const parsedText = await parser.getText();
-          if (typeof parser.destroy === "function") {
-            await parser.destroy();
-          }
-          text = parsedText || "";
-        } else {
-          throw new Error("Modulo pdf-parse non compatibile");
+          pdfParseFn = pdfModule;
+        } else if (typeof pdfModule.pdfParse === "function") {
+          pdfParseFn = pdfModule.pdfParse;
         }
+
+        if (!pdfParseFn) {
+          throw new Error("Modulo pdf-parse-fixed non compatibile");
+        }
+
+        const result = await pdfParseFn(buffer);
+        const text = result.text || "";
 
         // pulizia file temporaneo
         await fsPromises.unlink(req.file.path).catch(() => {});
