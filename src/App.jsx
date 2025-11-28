@@ -2,10 +2,14 @@ import { useState, useEffect } from "react";
 import "./App.css";
 
 // Base URL API: locale vs online
-const API_BASE =
-  window.location.hostname === "localhost"
-    ? "http://localhost:3001"
-    : "https://fermento-editor.onrender.com";
+const isLocalHost =
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1";
+
+const API_BASE = isLocalHost
+  ? "http://localhost:3001"
+  : "https://fermento-editor.onrender.com";
+
 
 // Conta parole e caratteri ignorando i tag HTML
 function getStats(html) {
@@ -67,6 +71,9 @@ function App() {
   const [evalLoading, setEvalLoading] = useState(false);
   const [evalError, setEvalError] = useState("");
   const [loadingEvaluationId, setLoadingEvaluationId] = useState(null);
+  const [lastEvaluationId, setLastEvaluationId] = useState(null);
+const [editingMode, setEditingMode] = useState(""); // "editing-leggero" | "editing-moderato" | "editing-profondo"
+
 
   // Carica valutazioni manoscritti salvate da backend
   useEffect(() => {
@@ -213,7 +220,7 @@ function App() {
         throw new Error("Errore dal server AI (status " + response.status + ")");
       }
 
-      const data = await response.json();
+            const data = await response.json();
 
       if (!data.success) {
         throw new Error(data.error || "Errore generico AI");
@@ -222,8 +229,12 @@ function App() {
       setWorkedHtml(data.result || "");
       setStatus("Testo aggiornato con la risposta AI.");
 
-      // Se abbiamo appena fatto una valutazione manoscritto, ricarichiamo l'elenco
+      // Se abbiamo appena fatto una VALUTAZIONE, salvo l'ID e aggiorno l'elenco
       if (mode === "valutazione-manoscritto") {
+        if (data.savedId) {
+          setLastEvaluationId(data.savedId); // 🔹 nuovo
+        }
+
         try {
           setEvalLoading(true);
           const resEval = await fetch(`${API_BASE}/api/evaluations`);
@@ -242,6 +253,7 @@ function App() {
           setEvalLoading(false);
         }
       }
+
     } catch (err) {
       console.error(err);
       setStatus(
@@ -297,18 +309,32 @@ function App() {
         const blocco = chunks[i];
         setBookProgress(`Blocco ${i + 1} di ${chunks.length}`);
 
-        const response = await fetch(`${API_BASE}/api/ai`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            text: blocco,
-            mode: "correzione-soft",
-            projectTitle,
-            projectAuthor,
-          }),
-        });
+              // Costruisco il body della richiesta
+      const body = {
+        text: textToSend,
+        mode,
+        projectTitle,
+        projectAuthor,
+      };
+
+      // 🔹 Aggiungo evaluationId SOLO se siamo in editing e abbiamo un ID salvato
+      if (
+        (mode === "editing-leggero" ||
+          mode === "editing-moderato" ||
+          mode === "editing-profondo") &&
+        lastEvaluationId
+      ) {
+        body.evaluationId = lastEvaluationId;
+      }
+
+      const response = await fetch(`${API_BASE}/api/ai`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+
 
         if (!response.ok) {
           throw new Error(
@@ -730,9 +756,40 @@ function App() {
               : "Correzione testo"}
           </button>
 
-          {/* EDITING */}
+                    {/* EDITING GUIDATO DALLA VALUTAZIONE */}
+          <select
+            value={editingMode}
+            onChange={(e) => setEditingMode(e.target.value)}
+            style={{
+              fontSize: "11px",
+              padding: "4px 6px",
+              borderRadius: "6px",
+              border: "1px solid #e0d5c5",
+            }}
+          >
+            <option value="">– Tipo editing –</option>
+            <option value="editing-leggero">Editing leggero</option>
+            <option value="editing-moderato">Editing moderato</option>
+            <option value="editing-profondo">Editing profondo</option>
+          </select>
+
           <button
-            onClick={() => callAi("editing-profondo")}
+            onClick={() => {
+              if (!editingMode) {
+                alert(
+                  "Seleziona prima il tipo di editing (leggero / moderato / profondo)."
+                );
+                return;
+              }
+              if (!lastEvaluationId) {
+                alert(
+                  "Per usare l'editing guidato devi prima fare una VALUTAZIONE MANOSCRITTO.\n" +
+                    "La scheda editoriale servirà come base per l'editing automatico."
+                );
+                return;
+              }
+              callAi(editingMode);
+            }}
             disabled={isAiLoading || isBookProcessing}
             style={{
               padding: "6px 10px",
@@ -745,13 +802,22 @@ function App() {
               cursor:
                 isAiLoading || isBookProcessing ? "default" : "pointer",
               opacity:
-                isAiLoading && lastAiMode === "editing-profondo" ? 0.7 : 1,
+                isAiLoading &&
+                (lastAiMode === "editing-profondo" ||
+                  lastAiMode === "editing-moderato" ||
+                  lastAiMode === "editing-leggero")
+                  ? 0.7
+                  : 1,
             }}
           >
-            {isAiLoading && lastAiMode === "editing-profondo"
+            {isAiLoading &&
+            (lastAiMode === "editing-profondo" ||
+              lastAiMode === "editing-moderato" ||
+              lastAiMode === "editing-leggero")
               ? "AI: editing..."
-              : "Editing"}
+              : "Esegui editing"}
           </button>
+
 
           {/* CORREZIONE LIBRO INTERO */}
           <button
