@@ -1,13 +1,8 @@
 import { useState, useEffect } from "react";
 import "./App.css";
 
-const isLocalHost =
-  window.location.hostname === "localhost" ||
-  window.location.hostname === "127.0.0.1";
-
-const API_BASE = isLocalHost
-  ? "http://localhost:3001"
-  : "https://fermento-editor.onrender.com";
+const API_BASE = "https://fermento-editor.onrender.com";
+const EVAL_STORAGE_KEY = "fermento-editor-evaluations-v1";
 
 function App() {
   // ===========================
@@ -27,28 +22,41 @@ function App() {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [lastAiMode, setLastAiMode] = useState(null);
 
-  const projectId = "default-project";
-
   // ===========================
-  // CARICAMENTO VALUTAZIONI
+  // CARICAMENTO VALUTAZIONI (localStorage)
   // ===========================
   useEffect(() => {
     loadEvaluations();
   }, []);
 
-  async function loadEvaluations() {
+  function loadEvaluations() {
     try {
       setIsLoadingEvals(true);
-      const res = await fetch(
-        `${API_BASE}/api/evaluations?projectId=${encodeURIComponent(projectId)}`
-      );
-      const data = await res.json();
-      const list = Array.isArray(data.evaluations) ? data.evaluations : [];
-      setEvaluations(list);
+      const raw = window.localStorage.getItem(EVAL_STORAGE_KEY);
+      if (!raw) {
+        setEvaluations([]);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        setEvaluations(parsed);
+      } else {
+        setEvaluations([]);
+      }
     } catch (err) {
       console.error("Errore caricamento valutazioni:", err);
+      setEvaluations([]);
     } finally {
       setIsLoadingEvals(false);
+    }
+  }
+
+  function persistEvaluations(list) {
+    setEvaluations(list);
+    try {
+      window.localStorage.setItem(EVAL_STORAGE_KEY, JSON.stringify(list));
+    } catch (err) {
+      console.error("Errore salvataggio valutazioni in localStorage:", err);
     }
   }
 
@@ -84,54 +92,52 @@ function App() {
   }
 
   // ===========================
-  // SALVATAGGIO / CANCELLAZIONE VALUTAZIONI
+  // SALVATAGGIO / CANCELLAZIONE VALUTAZIONI (solo localStorage)
   // ===========================
-  async function saveCurrentEvaluation() {
+  function saveCurrentEvaluation() {
     if (!currentEvaluation.trim()) {
       alert("Non c'è nessun testo di valutazione da salvare.");
       return;
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/evaluations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId,
-          fileName: null,
-          title: "Valutazione " + new Date().toLocaleString(),
-          evaluationText: currentEvaluation,
-          meta: {},
-        }),
-      });
+      const now = new Date();
 
-      const data = await res.json();
-      if (data && data.success && data.evaluation) {
-        setEvaluations((prev) => [...prev, data.evaluation]);
-      } else {
-        alert("Risposta inattesa dal server.");
-      }
+      const titleFromProject =
+        projectTitle && projectTitle.trim().length > 0
+          ? projectTitle.trim()
+          : null;
+
+      const title =
+        titleFromProject || "Valutazione " + now.toLocaleString();
+
+      const item = {
+        id: window.crypto?.randomUUID
+          ? window.crypto.randomUUID()
+          : Date.now().toString(),
+        title,
+        projectTitle: projectTitle || "",
+        projectAuthor: projectAuthor || "",
+        evaluationText: currentEvaluation,
+        createdAt: now.toISOString(),
+      };
+
+      const updated = [...evaluations, item];
+      persistEvaluations(updated);
+
+      alert("Valutazione salvata correttamente!");
     } catch (err) {
       console.error("Errore salvataggio valutazione:", err);
       alert("Errore nel salvataggio della valutazione.");
     }
   }
 
-  async function deleteEvaluation(id) {
+  function deleteEvaluation(id) {
     if (!window.confirm("Vuoi davvero cancellare questa valutazione?")) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/evaluations/${id}`, {
-        method: "DELETE",
-      });
-      const data = await res.json();
-
-      if (!data.success) {
-        alert("Errore nella cancellazione della valutazione.");
-        return;
-      }
-
-      setEvaluations((prev) => prev.filter((v) => v.id !== id));
+      const updated = evaluations.filter((v) => v.id !== id);
+      persistEvaluations(updated);
     } catch (err) {
       console.error("Errore cancellazione valutazione:", err);
       alert("Errore nella cancellazione della valutazione.");
@@ -156,20 +162,41 @@ function App() {
     setLastAiMode(mode);
 
     try {
+      const body = {
+        mode,
+        text: inputText,
+        projectTitle,
+        projectAuthor,
+        // NIENTE evaluationId, niente obblighi.
+      };
+
       const res = await fetch(`${API_BASE}/api/ai`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode,
-          text: inputText,
-          projectTitle,
-          projectAuthor,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok) {
-        console.error(await res.text());
-        alert("Errore nella chiamata all'AI.");
+        let errorText = "";
+        try {
+          errorText = await res.text();
+        } catch (readErr) {
+          console.error("Errore leggendo il corpo della risposta:", readErr);
+        }
+
+        console.error(
+          "Errore API /api/ai:",
+          res.status,
+          res.statusText,
+          errorText
+        );
+
+        const message =
+          errorText && errorText.trim().length > 0
+            ? errorText
+            : `${res.status} ${res.statusText}`;
+
+        alert("Errore nella chiamata all'AI: " + message);
         return;
       }
 
@@ -181,15 +208,15 @@ function App() {
         setOutputText(data.result || "");
       }
     } catch (err) {
-      console.error("Errore chiamata AI:", err);
-      alert("Errore di rete nella chiamata AI.");
+      console.error("Errore chiamata AI (network o JS):", err);
+      alert("Errore di rete nella chiamata AI: " + err.message);
     } finally {
       setIsAiLoading(false);
     }
   }
 
   // ===========================
-  // EXPORT DOCX
+  // EXPORT DOCX TESTO
   // ===========================
   async function handleExportDocx() {
     const textToExport =
@@ -217,7 +244,8 @@ function App() {
       });
 
       if (!res.ok) {
-        console.error(await res.text());
+        const txt = await res.text();
+        console.error("Errore export-docx:", txt);
         alert("Errore durante l'esportazione in DOCX.");
         return;
       }
@@ -235,6 +263,56 @@ function App() {
     } catch (err) {
       console.error("Errore network export DOCX:", err);
       alert("Errore di rete durante l'esportazione in DOCX.");
+    }
+  }
+
+  // ===========================
+  // EXPORT DOCX VALUTAZIONE
+  // ===========================
+  async function handleExportEvaluationDocx() {
+    const textToExport = currentEvaluation.trim();
+
+    if (!textToExport) {
+      alert("Non c'è nessuna valutazione da esportare.");
+      return;
+    }
+
+    const rawParagraphs = textToExport
+      .split(/\n{2,}/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+
+    const htmlParagraphs = rawParagraphs
+      .map((p) => `<p>${p.replace(/\n/g, "<br/>")}</p>`)
+      .join("\n");
+
+    try {
+      const res = await fetch(`${API_BASE}/api/export-docx`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html: htmlParagraphs }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error("Errore export-docx valutazione:", txt);
+        alert("Errore durante l'esportazione della valutazione in DOCX.");
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "valutazione-manoscritto.docx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Errore network export valutazione DOCX:", err);
+      alert("Errore di rete durante l'esportazione della valutazione.");
     }
   }
 
@@ -356,6 +434,9 @@ function App() {
             <button onClick={saveCurrentEvaluation}>
               Salva valutazione
             </button>
+            <button onClick={handleExportEvaluationDocx}>
+              Esporta valutazione DOCX
+            </button>
             <button onClick={loadEvaluations} disabled={isLoadingEvals}>
               {isLoadingEvals ? "Carico..." : "Aggiorna elenco"}
             </button>
@@ -374,7 +455,9 @@ function App() {
                     {v.title || v.projectTitle || "Valutazione"}
                   </strong>
                   <span className="eval-date">
-                    {new Date(v.createdAt).toLocaleString()}
+                    {v.createdAt
+                      ? new Date(v.createdAt).toLocaleString()
+                      : ""}
                   </span>
                 </div>
 
