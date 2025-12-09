@@ -189,3 +189,311 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+/* LAYOUT GENERALE DEI BOTTONI */
+.buttons-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;              /* spazio tra un bottone e l'altro */
+  margin-top: 8px;
+}
+
+.buttons-row button {
+  padding: 6px 14px;
+  border-radius: 999px;  /* effetto “pillola” */
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  background: #e5e7eb;   /* grigio chiaro di base */
+  color: #111827;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease;
+}
+
+.buttons-row button:hover:not(:disabled) {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
+  transform: translateY(-1px);
+}
+
+.buttons-row button:disabled {
+  opacity: 0.6;
+  cursor: default;
+  box-shadow: none;
+  transform: none;
+}
+
+/* COLORI SPECIFICI SOLO PER I BOTTONI DELLA COLONNA SINISTRA */
+.column:first-of-type .buttons-row button:nth-child(1) {
+  background: #2563eb;   /* blu: correzione */
+  color: #ffffff;
+}
+
+.column:first-of-type .buttons-row button:nth-child(2) {
+  background: #0d9488;   /* verde acqua: editing leggero */
+  color: #ffffff;
+}
+
+.column:first-of-type .buttons-row button:nth-child(3) {
+  background: #f59e0b;   /* giallo: editing moderato */
+  color: #111827;
+}
+
+.column:first-of-type .buttons-row button:nth-child(4) {
+  background: #dc2626;   /* rosso: editing profondo */
+  color: #ffffff;
+}
+
+.column:first-of-type .buttons-row button:nth-child(5) {
+  background: #4b5563;   /* grigio scuro: traduzione */
+  color: #ffffff;
+}
+
+/* Effetto hover leggermente più brillante per quelli colorati */
+.column:first-of-type .buttons-row button:nth-child(-n + 5):hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+/* ===========================
+   LAYOUT COLONNE
+   =========================== */
+
+.layout {
+  display: grid;
+  grid-template-columns: 1.4fr 1.4fr 1.2fr;
+  gap: 18px;
+  padding: 16px 20px 24px;
+  align-items: flex-start;
+}
+
+.column {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 14px 16px 18px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.column h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  color: #0f172a;
+}
+
+/* ===========================
+   TEXTAREA / INPUT
+   =========================== */
+
+textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.5;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+.meta-fields input {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  padding: 6px 10px;
+  font-size: 13px;
+  margin-bottom: 6px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.meta-fields input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18);
+}
+
+/* ===========================
+   RIGA BOTTONI (SINISTRA + CENTRALE + DESTRA)
+   =========================== */
+
+.buttons-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Stile base di TUTTI i bottoni */
+button {
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  background: #0f172a;
+  color: #f9fafb;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.08s ease;
+  white-space: nowrap;
+}
+
+/* Effetto hover generale */
+button:hover:not(:disabled) {
+  background-color: #111827;
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.25);
+  transform: translateY(-1px);
+}
+
+/* Stato disabilitato */
+button:disabled {
+  cursor: default;
+  opacity: 0.55;
+  box-shadow: none;
+}
+
+/* ===========================
+   VARIANTI BOTTONI – COLONNA SINISTRA
+   =========================== */
+
+/* 1° bottone: Correzione testo → primario blu scuro */
+.column:first-of-type .buttons-row button:nth-child(1) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+.column:first-of-type .buttons-row button:nth-child(1):hover:not(:disabled) {
+  background: #1e40af;
+}
+
+/* 2° bottone: Editing leggero → tono teal */
+.column:first-of-type .buttons-row button:nth-child(2) {
+  background: #0f766e;
+  border-color: #0f766e;
+}
+.column:first-of-type .buttons-row button:nth-child(2):hover:not(:disabled) {
+  background: #115e59;
+}
+
+/* 3° bottone: Editing moderato → arancione soft */
+.column:first-of-type .buttons-row button:nth-child(3) {
+  background: #ea580c;
+  border-color: #ea580c;
+}
+.column:first-of-type .buttons-row button:nth-child(3):hover:not(:disabled) {
+  background: #c2410c;
+}
+
+/* 4° bottone: Editing profondo → rosso deciso */
+.column:first-of-type .buttons-row button:nth-child(4) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+}
+.column:first-of-type .buttons-row button:nth-child(4):hover:not(:disabled) {
+  background: #991b1b;
+}
+
+/* 5° bottone: Traduzione → viola */
+.column:first-of-type .buttons-row button:nth-child(5) {
+  background: #6d28d9;
+  border-color: #6d28d9;
+}
+.column:first-of-type .buttons-row button:nth-child(5):hover:not(:disabled) {
+  background: #5b21b6;
+}
+
+/* ===========================
+   BOTTONI COLONNA CENTRALE / DESTRA
+   =========================== */
+
+/* Scarica DOCX (colonna centrale) → look neutro ma elegante */
+.column:nth-of-type(2) .buttons-row button {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5f5;
+}
+.column:nth-of-type(2) .buttons-row button:hover:not(:disabled) {
+  background: #e2e8f0;
+}
+
+/* Bottoni valutazione (colonna destra) */
+.column:nth-of-type(3) .buttons-row button:nth-child(1) {
+  background: #0f172a;
+  border-color: #0f172a;
+}
+
+.column:nth-of-type(3) .buttons-row button:nth-child(2) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
+.column:nth-of-type(3) .buttons-row button:nth-child(3) {
+  background: #f97316;
+  border-color: #f97316;
+}
+
+/* ===========================
+   LISTA VALUTAZIONI
+   =========================== */
+
+.eval-list {
+  margin-top: 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.eval-item {
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eval-header strong {
+  font-size: 12px;
+}
+
+.eval-date {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.eval-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.eval-actions button {
+  padding-inline: 10px;
+  font-size: 11px;
+  border-radius: 999px;
+}

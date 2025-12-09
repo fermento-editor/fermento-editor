@@ -1,14 +1,20 @@
 import { useState, useEffect } from "react";
 import "./App.css";
 
-const API_BASE = "https://fermento-editor.onrender.com";
+const isLocalHost =
+  window.location.hostname === "localhost" ||
+  window.location.hostname === "127.0.0.1";
+
+const API_BASE = isLocalHost
+  ? "http://localhost:3001"
+  : "https://fermento-editor.onrender.com";
+
 const EVAL_STORAGE_KEY = "fermento-editor-evaluations-v1";
 
 function App() {
   // ===========================
   // STATI BASE
   // ===========================
-
   const [inputText, setInputText] = useState("");
   const [outputText, setOutputText] = useState("");
 
@@ -21,6 +27,9 @@ function App() {
 
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [lastAiMode, setLastAiMode] = useState(null);
+
+  // ✅ nuovo: preferenza se l’editing deve usare la valutazione
+  const [useEvalForEditing, setUseEvalForEditing] = useState(false);
 
   // ===========================
   // CARICAMENTO VALUTAZIONI (localStorage)
@@ -150,7 +159,7 @@ function App() {
   }
 
   // ===========================
-  // CHIAMATA AI
+  // CHIAMATA AI (VERSIONE UNIVERSALE)
   // ===========================
   async function callAi(mode) {
     if (!inputText.trim()) {
@@ -162,13 +171,28 @@ function App() {
     setLastAiMode(mode);
 
     try {
+      // base del body
       const body = {
         mode,
         text: inputText,
         projectTitle,
         projectAuthor,
-        // NIENTE evaluationId, niente obblighi.
       };
+
+      // se stiamo facendo editing/correzione, passiamo anche la valutazione
+      const isEditingMode =
+        mode === "correzione-soft" ||
+        mode === "editing-leggero" ||
+        mode === "editing-moderato" ||
+        mode === "editing-profondo" ||
+        mode === "traduzione-it-en";
+
+      if (isEditingMode) {
+        body.useEvaluationForEditing = useEvalForEditing;
+        body.currentEvaluation = useEvalForEditing
+          ? currentEvaluation || ""
+          : "";
+      }
 
       const res = await fetch(`${API_BASE}/api/ai`, {
         method: "POST",
@@ -181,35 +205,48 @@ function App() {
         try {
           errorText = await res.text();
         } catch (readErr) {
-          console.error("Errore leggendo il corpo della risposta:", readErr);
+          console.error("Errore leggendo risposta:", readErr);
         }
-
-        console.error(
-          "Errore API /api/ai:",
-          res.status,
-          res.statusText,
-          errorText
-        );
 
         const message =
           errorText && errorText.trim().length > 0
             ? errorText
             : `${res.status} ${res.statusText}`;
 
-        alert("Errore nella chiamata all'AI: " + message);
+        alert("Errore AI: " + message);
         return;
       }
 
       const data = await res.json();
+      console.log("Risposta AI dal backend:", data);
 
+      let output =
+        data.result ||
+        data.outputText ||
+        data.text ||
+        data.output ||
+        (data.choices &&
+          data.choices[0] &&
+          data.choices[0].message &&
+          data.choices[0].message.content);
+
+      if (!output) {
+        output = JSON.stringify(data, null, 2);
+      }
+
+      // 🔴 QUI RISOLVIAMO IL PROBLEMA:
+      // - se è una VALUTAZIONE, scriviamo nella colonna DESTRA
+      // - altrimenti nella colonna CENTRALE
       if (mode === "valutazione-manoscritto") {
-        setCurrentEvaluation(data.result || "");
+        setCurrentEvaluation(output);
+        // opzionale: pulisco il centro per evitare confusione
+        // setOutputText("");
       } else {
-        setOutputText(data.result || "");
+        setOutputText(output);
       }
     } catch (err) {
-      console.error("Errore chiamata AI (network o JS):", err);
-      alert("Errore di rete nella chiamata AI: " + err.message);
+      console.error("Errore chiamata AI:", err);
+      alert("Errore nella chiamata AI: " + err.message);
     } finally {
       setIsAiLoading(false);
     }
@@ -267,54 +304,47 @@ function App() {
   }
 
   // ===========================
-  // EXPORT DOCX VALUTAZIONE
-  // ===========================
-  async function handleExportEvaluationDocx() {
-    const textToExport = currentEvaluation.trim();
+// EXPORT DOCX VALUTAZIONE
+// ===========================
+async function handleExportEvaluationDocx() {
+  // La valutazione è già HTML (con <h2>, <h3>, <p>, <ul>, <li>...)
+  const htmlToExport = currentEvaluation.trim();
 
-    if (!textToExport) {
-      alert("Non c'è nessuna valutazione da esportare.");
+  if (!htmlToExport) {
+    alert("Non c'è nessuna valutazione da esportare.");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/export-docx`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ html: htmlToExport }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      console.error("Errore export-docx valutazione:", txt);
+      alert("Errore durante l'esportazione della valutazione in DOCX.");
       return;
     }
 
-    const rawParagraphs = textToExport
-      .split(/\n{2,}/)
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
 
-    const htmlParagraphs = rawParagraphs
-      .map((p) => `<p>${p.replace(/\n/g, "<br/>")}</p>`)
-      .join("\n");
-
-    try {
-      const res = await fetch(`${API_BASE}/api/export-docx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ html: htmlParagraphs }),
-      });
-
-      if (!res.ok) {
-        const txt = await res.text();
-        console.error("Errore export-docx valutazione:", txt);
-        alert("Errore durante l'esportazione della valutazione in DOCX.");
-        return;
-      }
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "valutazione-manoscritto.docx";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Errore network export valutazione DOCX:", err);
-      alert("Errore di rete durante l'esportazione della valutazione.");
-    }
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "valutazione-manoscritto.docx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("Errore network export valutazione DOCX:", err);
+    alert("Errore di rete durante l'esportazione della valutazione.");
   }
+}
+
 
   // ===========================
   // RENDER
@@ -423,6 +453,43 @@ function App() {
           >
             Valutazione manoscritto
           </button>
+
+          {/* ✅ SCELTA: EDITING BASATO O NO SULLA VALUTAZIONE */}
+          <div
+            className="buttons-row"
+            style={{ marginTop: "8px", marginBottom: "4px" }}
+          >
+            <button
+              onClick={() => setUseEvalForEditing(true)}
+              style={{
+                padding: "4px 8px",
+                borderRadius: "6px",
+                border: "none",
+                fontSize: "11px",
+                fontWeight: 600,
+                cursor: "pointer",
+                backgroundColor: useEvalForEditing ? "#e67e22" : "#bdc3c7",
+                color: "white",
+              }}
+            >
+              Editing basato su valutazione
+            </button>
+            <button
+              onClick={() => setUseEvalForEditing(false)}
+              style={{
+                padding: "4px 8px",
+                borderRadius: "6px",
+                border: "none",
+                fontSize: "11px",
+                fontWeight: 600,
+                cursor: "pointer",
+                backgroundColor: !useEvalForEditing ? "#2c3e50" : "#bdc3c7",
+                color: "white",
+              }}
+            >
+              Editing senza valutazione
+            </button>
+          </div>
 
           <h3 style={{ marginTop: "10px" }}>Valutazione corrente</h3>
           <textarea

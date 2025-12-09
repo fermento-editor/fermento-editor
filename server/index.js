@@ -1,7 +1,4 @@
-/* ============================================================
-   server/index.js - Fermento Editor backend (DOCX + PDF + AI)
-   Versione completa e pulita — BLOCCO 1/4
-   ============================================================ */
+// server/index.js - Fermento Editor backend (DOCX + PDF + AI)
 
 import express from "express";
 import cors from "cors";
@@ -15,124 +12,48 @@ import fs from "fs";
 import fsPromises from "fs/promises";
 import { fileURLToPath } from "url";
 
-/* ===============================
-   PATH BASE + CARTELLE
-   =============================== */
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Cartella upload
-const uploadDir = path.join(__dirname, "uploads");
-fs.mkdirSync(uploadDir, { recursive: true });
-
-// File valutazioni
-const evaluationsPath = path.join(__dirname, "data", "evaluations.json");
-
-// File bestseller
-const bestsellerPath = path.join(__dirname, "data", "bestseller_2025.json");
-
-/* ===============================
-   CLIENT OPENAI
-   =============================== */
+// ===============================
+//   CLIENT OPENAI
+// ===============================
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
 console.log("OPENAI_API_KEY presente?", !!process.env.OPENAI_API_KEY);
 
-/* ===============================
-   FUNZIONE EDITING BLOCCHI (HTML-SAFE)
-   =============================== */
-async function callOpenAIForEditing(htmlBlock, mode) {
-  let modeInstruction;
+// ===============================
+//   PATH E CONFIGURAZIONI BASE
+// ===============================
 
-  if (mode === "leggero") {
-    modeInstruction =
-      "Fai un editing LEGGERO: correggi refusi, punteggiatura, concordanze e piccole imperfezioni senza alterare lo stile.";
-  } else if (mode === "moderato") {
-    modeInstruction =
-      "Fai un editing MODERATO: migliora leggermente la scorrevolezza senza modificare la voce dell'autore.";
-  } else if (mode === "profondo") {
-    modeInstruction =
-      "Fai un editing PROFONDO: rendi fluide frasi rigide mantenendo i contenuti invariati.";
-  } else {
-    modeInstruction =
-      "Correggi refusi e punteggiatura mantenendo identico stile e contenuti.";
-  }
+const app = express();
+const PORT = process.env.PORT || 3001;
 
-  const systemMessage =
-    "Sei un editor professionale Fermento. Lavora SOLO sul testo interno ai tag HTML. NON modificare tag, attributi, ordine o struttura. Restituisci solo l'HTML pulito.";
+app.use(cors());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-  const userMessage =
-    modeInstruction +
-    "\n\nEcco il BLOCCO HTML da editare. Rispondi SOLO con l'HTML:\n\n" +
-    htmlBlock;
+// __dirname per ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4.1-mini",
-    messages: [
-      { role: "system", content: systemMessage },
-      { role: "user", content: userMessage },
-    ],
-  });
+// cartella upload
+const uploadDir = path.join(__dirname, "uploads");
+fs.mkdirSync(uploadDir, { recursive: true });
 
-  return completion.choices[0].message.content;
-}
-/* ===============================
-   SPLIT IN BLOCCHI
-   =============================== */
-function splitIntoBlocks(text, maxChars = 15000) {
-  const blocks = [];
-  let remaining = text || "";
+const upload = multer({ dest: uploadDir });
 
-  if (!remaining.trim()) return blocks;
+// file valutazioni
+const evaluationsPath = path.join(__dirname, "data", "evaluations.json");
 
-  while (remaining.length > maxChars) {
-    let cutoff = maxChars;
+// file lista best seller mercato
+const marketTopListPath = path.join(__dirname, "data", "marketTopList.json");
 
-    while (cutoff > 0 && remaining[cutoff] !== " ") {
-      cutoff--;
-    }
+// ===============================
+//   UTILITY: LETTURA/SCRITTURA VALUTAZIONI
+// ===============================
 
-    if (cutoff === 0) cutoff = maxChars;
-
-    blocks.push(remaining.slice(0, cutoff).trim());
-    remaining = remaining.slice(cutoff).trim();
-  }
-
-  if (remaining.length > 0) {
-    blocks.push(remaining);
-  }
-
-  return blocks;
-}
-
-/* ===============================
-   FILTRO TIPOGRAFICO FERMENTO
-   =============================== */
-function applyTypographicFixes(text) {
-  if (!text) return text;
-  let t = text;
-
-  t = t.replace(/…/g, "...");
-  t = t.replace(/\.{2,}/g, "...");
-  t = t.replace(/\s+([.,;:!?])/g, "$1");
-  t = t.replace(/(["«“])\s+/g, "$1");
-  t = t.replace(/\s+(["»”'])/g, "$1");
-  t = t.replace(/""/g, '"');
-  t = t.replace(/([!?])\.{1,}/g, "$1");
-  t = t.replace(/[!?]{2,}/g, (m) => m[m.length - 1]);
-  t = t.replace(/(["»”])\s*(?![.,;:!? \n\r])/g, "$1 ");
-  t = t.replace(/ {2,}/g, " ");
-
-  return t;
-}
-
-/* ===============================
-   LETTURA/SCRITTURA VALUTAZIONI
-   =============================== */
 async function loadEvaluations() {
   try {
     const data = await fsPromises.readFile(evaluationsPath, "utf8");
@@ -157,39 +78,79 @@ async function saveEvaluations(list) {
   }
 }
 
-/* ===============================
-   LETTURA BESTSELLER
-   =============================== */
-async function loadBestsellers() {
+// ===============================
+//   UTILITY: LISTA TOP BESTSELLER (MERCATO)
+// ===============================
+
+async function loadMarketTopList() {
   try {
-    const data = await fsPromises.readFile(bestsellerPath, "utf8");
+    const data = await fsPromises.readFile(marketTopListPath, "utf8");
     return JSON.parse(data);
   } catch (err) {
-    if (err.code === "ENOENT") {
-      console.warn("bestseller_2025.json non trovato, uso lista vuota.");
-      return [];
+    if (err.code !== "ENOENT") {
+      console.error("Errore loadMarketTopList:", err);
     }
-    console.error("Errore loadBestsellers:", err);
     return [];
   }
 }
 
-/* ===============================
-   EXPRESS APP
-   =============================== */
-const app = express();
-const PORT = process.env.PORT || 3001;
+async function saveMarketTopList(list) {
+  try {
+    await fsPromises.mkdir(path.dirname(marketTopListPath), {
+      recursive: true,
+    });
+    await fsPromises.writeFile(
+      marketTopListPath,
+      JSON.stringify(list, null, 2),
+      "utf8"
+    );
+  } catch (err) {
+    console.error("Errore saveMarketTopList:", err);
+  }
+}
 
-app.use(cors());
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
+// ===============================
+//   FILTRO TIPOGRAFICO FERMENTO
+// ===============================
 
-// Multer upload
-const upload = multer({ dest: uploadDir });
+function applyTypographicFixes(text) {
+  if (!text) return text;
+  let t = text;
 
-/* ===============================
-   UPLOAD DOCX / PDF
-   =============================== */
+  t = t.replace(/…/g, "...");
+  t = t.replace(/\.{2,}/g, "...");
+  t = t.replace(/\s+([.,;:!?])/g, "$1");
+  t = t.replace(/(["«“])\s+/g, "$1");
+  t = t.replace(/\s+(["»”'])/g, "$1");
+  t = t.replace(/""/g, '"');
+  t = t.replace(/([!?])\.{1,}/g, "$1");
+  t = t.replace(/[!?]{2,}/g, (m) => m[m.length - 1]);
+  t = t.replace(/(["»”])\s*(?![.,;:!? \n\r])/g, "$1 ");
+  t = t.replace(/ {2,}/g, " ");
+   // Corregge casi come: La valutazione è" discreta → La valutazione è "discreta
+  t = t.replace(/([a-zA-ZÀ-ÿ])"(?=[A-Za-zÀ-ÿ])/g, '$1 "');
+
+
+  return t;
+}
+
+// =========================
+// FUNZIONE UNICA DI SPEZZETTAMENTO
+// =========================
+function chunkText(text, chunkSize = 15000) {
+  const chunks = [];
+  let index = 0;
+  while (index < text.length) {
+    chunks.push(text.slice(index, index + chunkSize));
+    index += chunkSize;
+  }
+  return chunks;
+}
+
+// ===============================
+//   UPLOAD DOCX/PDF
+// ===============================
+
 async function handleUpload(req, res) {
   try {
     if (!req.file) {
@@ -201,21 +162,18 @@ async function handleUpload(req, res) {
 
     const ext = path.extname(req.file.originalname).toLowerCase();
 
-    // ===== PDF =====
+    // ====== PDF → testo semplice ======
     if (ext === ".pdf") {
       try {
         const buffer = await fsPromises.readFile(req.file.path);
 
         const pdfModule = await import("pdf-parse-fixed");
-        let pdfParseFn = null;
-
-        if (typeof pdfModule.default === "function") {
-          pdfParseFn = pdfModule.default;
-        } else if (typeof pdfModule === "function") {
-          pdfParseFn = pdfModule;
-        } else if (typeof pdfModule.pdfParse === "function") {
-          pdfParseFn = pdfModule.pdfParse;
-        }
+        let pdfParseFn =
+          typeof pdfModule.default === "function"
+            ? pdfModule.default
+            : typeof pdfModule === "function"
+            ? pdfModule
+            : pdfModule.pdfParse;
 
         if (!pdfParseFn) {
           throw new Error("Modulo pdf-parse-fixed non compatibile");
@@ -241,7 +199,7 @@ async function handleUpload(req, res) {
       }
     }
 
-    // ===== DOCX =====
+    // ====== DOCX → HTML ======
     if (ext === ".docx") {
       const buffer = await fsPromises.readFile(req.file.path);
       const result = await mammoth.convertToHtml({ buffer });
@@ -274,49 +232,94 @@ app.post("/api/import-docx", upload.single("file"), handleUpload);
 app.post("/api/import", upload.single("file"), handleUpload);
 app.post("/api/upload", upload.single("file"), handleUpload);
 
-/* ===============================
-   API VALUTAZIONI
-   =============================== */
-app.post("/api/evaluations", async (req, res) => {
-  try {
-    const { projectId, fileName, title, evaluationText, meta } = req.body;
+// ===============================
+//   EXPORT HTML -> DOCX
+// ===============================
 
-    if (!evaluationText) {
-      return res.status(400).json({ error: "evaluationText mancante" });
+app.post("/api/export-docx", async (req, res) => {
+  try {
+    const { html } = req.body;
+    if (!html) {
+      return res.status(400).json({
+        success: false,
+        error: "html mancante nel body",
+      });
     }
 
-    const all = await loadEvaluations();
+    // Partiamo dall'HTML ricevuto
+    let safeHtml = html;
 
-    const newEval = {
-      id: Date.now().toString(),
-      projectId: projectId || null,
-      fileName: fileName || null,
-      title: title || fileName || "Valutazione senza titolo",
-      evaluationText,
-      meta: meta || {},
-      createdAt: new Date().toISOString(),
-    };
+    // 1) Piccola pulizia virgolette “strane”
+    safeHtml = safeHtml
+      // sistema casi come: La valutazione è" discreta"
+      .replace(/è\"/g, 'è "')
+      .replace(/\"/g, '"')
+      // elimina eventuali doppi spazi orizzontali
+      .replace(/ {2,}/g, " ");
 
-    all.push(newEval);
-    await saveEvaluations(all);
+    // 2) Evita blocchi di righe vuote (riduce l'effetto "spazi doppi")
+    safeHtml = safeHtml.replace(/(\r?\n\s*){2,}/g, "\n");
 
-    res.json({
-      success: true,
-      evaluation: newEval,
+    // 3) NON tocchiamo più <ul> e <li>: lasciamo le liste native
+    //    così html-to-docx gestisce correttamente i bullet.
+
+    // 4) Manteniamo i titoli come paragrafi in grassetto
+    safeHtml = safeHtml
+      .replace(/<h2>/gi, '<p><strong>')
+      .replace(/<\/h2>/gi, '</strong></p>')
+      .replace(/<h3>/gi, '<p><strong>')
+      .replace(/<\/h3>/gi, '</strong></p>');
+
+    // 5) Impostiamo margine 0 ai paragrafi
+    //    (riduce la spaziatura verticale tra un paragrafo e l’altro)
+    safeHtml = safeHtml.replace(
+      /<p(\s*[^>]*)?>/gi,
+      '<p$1 style="margin-top:0;margin-bottom:0;line-height:1.15;">'
+    );
+
+    const docxBuffer = await htmlToDocx(safeHtml, null, {
+      // qualche opzione di base, non obbligatoria ma innocua
+      font: "Times New Roman",
+      fontSize: 24, // 12 pt
     });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="document.docx"'
+    );
+
+    return res.end(docxBuffer);
   } catch (err) {
-    console.error("Errore /api/evaluations POST:", err);
-    res.status(500).json({ error: "Errore salvataggio valutazione" });
+    console.error("Errore /api/export-docx:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Errore durante la conversione in DOCX",
+    });
   }
 });
 
+
+
+// ===========================
+//  API VALUTAZIONI (GET / POST / DELETE / DOCX)
+// ===========================
+
+// Elenco valutazioni (con eventuale filtro per projectId)
 app.get("/api/evaluations", async (req, res) => {
   try {
+    const projectId = req.query.projectId || null;
     const list = await loadEvaluations();
-    const { projectId } = req.query;
-    const filtered = projectId
-      ? list.filter((v) => v.projectId === projectId)
-      : list;
+
+    let filtered = list;
+    if (projectId) {
+      filtered = list.filter(
+        (ev) => !ev.projectId || ev.projectId === projectId
+      );
+    }
 
     return res.json({
       success: true,
@@ -326,11 +329,12 @@ app.get("/api/evaluations", async (req, res) => {
     console.error("Errore GET /api/evaluations:", err);
     return res.status(500).json({
       success: false,
-      error: "Errore lettura valutazioni",
+      error: "Errore nel caricamento delle valutazioni",
     });
   }
 });
 
+// GET singola valutazione
 app.get("/api/evaluations/:id", async (req, res) => {
   try {
     const list = await loadEvaluations();
@@ -356,250 +360,561 @@ app.get("/api/evaluations/:id", async (req, res) => {
   }
 });
 
-app.delete("/api/evaluations/:id", async (req, res) => {
+// DOWNLOAD VALUTAZIONE COME DOCX
+app.get("/api/evaluations/:id/docx", async (req, res) => {
   try {
     const list = await loadEvaluations();
-    const remaining = list.filter((v) => v.id !== req.params.id);
+    const found = list.find((v) => v.id === req.params.id);
 
-    if (remaining.length === list.length) {
+    if (!found) {
       return res.status(404).json({
         success: false,
         error: "Valutazione non trovata",
       });
     }
 
-    await saveEvaluations(remaining);
+    const html = found.html || found.evaluationText || "";
 
-    return res.json({
-      success: true,
-    });
-  } catch (err) {
-    console.error("Errore DELETE /api/evaluations/:id:", err);
-    return res.status(500).json({
-      success: false,
-      error: "Errore cancellazione valutazione",
-    });
-  }
-});
-/* ===============================
-   EDITING LIBRO INTERO (HTML SAFE)
-   =============================== */
-app.post("/api/edit-full-book", async (req, res) => {
-  try {
-    const { text, mode } = req.body;
-
-    console.log("📥 /api/edit-full-book chiamato");
-    console.log("   Mode:", mode);
-    console.log("   Lunghezza testo:", text ? text.length : 0);
-
-    if (!text || typeof text !== "string") {
-      return res
-        .status(400)
-        .json({ ok: false, error: "Testo mancante o non valido." });
-    }
-
-    if (!mode) {
-      return res
-        .status(400)
-        .json({ ok: false, error: "Mode mancante (leggero/moderato/profondo)." });
-    }
-
-    const blocks = splitIntoBlocks(text, 15000);
-    console.log("   Numero blocchi:", blocks.length);
-
-    const editedBlocks = [];
-
-    for (let i = 0; i < blocks.length; i++) {
-      const block = blocks[i];
-      console.log(
-        `   Editing blocco ${i + 1}/${blocks.length}, lunghezza: ${block.length}`
-      );
-
-      const edited = await callOpenAIForEditing(block, mode);
-      editedBlocks.push(edited);
-    }
-
-    const fullEditedText = editedBlocks.join("\n\n");
-
-    return res.json({
-      ok: true,
-      blocksCount: blocks.length,
-      editedBlocks,
-      fullEditedText,
-    });
-  } catch (err) {
-    console.error("Errore in /api/edit-full-book:", err);
-    return res
-      .status(500)
-      .json({ ok: false, error: "Errore interno nel full book editing." });
-  }
-});
-
-/* ===============================
-   EXPORT HTML → DOCX
-   =============================== */
-app.post("/api/export-docx", async (req, res) => {
-  try {
-    const { html } = req.body;
-    if (!html) {
-      return res.status(400).json({
-        success: false,
-        error: "html mancante nel body",
-      });
-    }
-
-    const fullHtml = `
-      <html>
-        <head>
-          <style>
-            p { margin: 0; padding: 0; }
-            h1, h2, h3 { margin-top: 18pt; margin-bottom: 6pt; }
-          </style>
-        </head>
-        <body>${html}</body>
-      </html>
-    `;
-
-    const buffer = await htmlToDocx(fullHtml, null, {});
+    const docxBuffer = await htmlToDocx(html, null, {});
 
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     );
+    const safeTitle = (found.title || "valutazione")
+      .replace(/[^a-zA-Z0-9-_ ]/g, "")
+      .slice(0, 50);
     res.setHeader(
       "Content-Disposition",
-      'attachment; filename="fermento-document.docx"'
+      `attachment; filename="${safeTitle || "valutazione"}.docx"`
     );
 
-    return res.end(buffer);
+    return res.end(docxBuffer);
   } catch (err) {
-    console.error("Errore /api/export-docx:", err);
+    console.error("Errore GET /api/evaluations/:id/docx:", err);
     return res.status(500).json({
       success: false,
-      error: "Errore durante la conversione in DOCX",
+      error: "Errore export DOCX valutazione",
     });
   }
 });
 
-/* ===============================
-   API AI — SEMPLIFICATA, SENZA VALUTAZIONE OBBLIGATORIA
-   =============================== */
+// Salvataggio valutazione via POST esplicito dal frontend
+app.post("/api/evaluations", async (req, res) => {
+  try {
+    const {
+      projectId = null,
+      fileName = null,
+      title = "Valutazione",
+      author = "",
+      evaluationText = "",
+      meta = {},
+    } = req.body;
+
+    const list = await loadEvaluations();
+
+    const newEval = {
+      id: Date.now().toString(),
+      projectId,
+      fileName,
+      title,
+      author,
+      evaluationText,
+      html: evaluationText,
+      meta,
+      date: new Date().toISOString(),
+    };
+
+    list.push(newEval);
+    await saveEvaluations(list);
+
+    return res.json({
+      success: true,
+      evaluation: newEval,
+    });
+  } catch (err) {
+    console.error("Errore POST /api/evaluations:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Errore nel salvataggio della valutazione",
+    });
+  }
+});
+
+// Cancellazione valutazione
+app.delete("/api/evaluations/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const list = await loadEvaluations();
+
+    const newList = list.filter((ev) => ev.id !== id);
+    await saveEvaluations(newList);
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Errore DELETE /api/evaluations/:id:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Errore nella cancellazione della valutazione",
+    });
+  }
+});
+
+// ===============================
+//   API AI PRINCIPALE
+// ===============================
 app.post("/api/ai", async (req, res) => {
+  console.log(">>> /api/ai chiamata, mode:", req.body?.mode);
+
   try {
     const {
       text = "",
       mode,
       projectTitle = "",
       projectAuthor = "",
+      projectId = null, // per collegare valutazioni e editing (legacy)
+      useEvaluation = false, // vecchio flag
+      // ✅ nuovi campi dal frontend
+      useEvaluationForEditing = false,
+      currentEvaluation = "",
     } = req.body || {};
-
-    if (!mode) {
-      return res.status(400).json({
-        success: false,
-        error: "Parametro mode mancante.",
-      });
-    }
-
-    if (!text || typeof text !== "string" || !text.trim()) {
-      return res.status(400).json({
-        success: false,
-        error: "Parametro text mancante o vuoto.",
-      });
-    }
 
     let systemMessage = "";
     let userMessage = "";
 
-    /* ===========================
-       CORREZIONE FERMENTO
-       =========================== */
+    // ===============================================
+    // VALUTAZIONE MANOSCRITTO SU LIBRO INTERO
+    // (spezzettamento + analisi parziali + mega-analisi finale "Fermento")
+    // ===============================================
+    if (mode === "valutazione" || mode === "valutazione-manoscritto") {
+      try {
+        // 1) Spezzetta il testo completo in blocchi grandi
+        const chunks = chunkText(text, 80000);
+        console.log("VALUTAZIONE: numero chunks:", chunks.length);
+
+        const partialAnalyses = [];
+
+        // 2) Analisi parziali per ogni blocco
+        for (let i = 0; i < chunks.length; i++) {
+          const promptPartial = `
+Sezione ${i + 1}/${chunks.length} del manoscritto.
+
+Analizza SOLO questa sezione in modo sintetico e strutturato:
+
+- Riassunto
+- Personaggi e loro evoluzione
+- Temi e tono
+- Punti di forza narrativi
+- Debolezze narrative
+- Note su lingua e stile (senza riscrivere il testo)
+
+Testo della sezione:
+${chunks[i]}
+`;
+
+          const p = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            temperature: 0,
+            messages: [{ role: "user", content: promptPartial }],
+          });
+
+          partialAnalyses.push(p.choices?.[0]?.message?.content?.trim() || "");
+        }
+
+        // 2bis) Carica la Top 10 bestseller dal file (se disponibile)
+        let topListSnippet = "";
+        try {
+          const topList = await loadMarketTopList();
+          if (Array.isArray(topList) && topList.length > 0) {
+            // JSON "tagliato" per non esplodere il prompt
+            topListSnippet = JSON.stringify(topList).slice(0, 15000);
+          }
+        } catch (err) {
+          console.error("Errore nel caricamento Top 10 mercato:", err);
+        }
+
+        // 3) Mega analisi finale – versione "spietata" Fermento
+        const finalPrompt = `
+Sei un editor professionista che lavora per una casa editrice italiana (Fermento).
+Devi redigere una scheda di VALUTAZIONE EDITORIALE COMPLETA, RIGOROSA E SPIETATA
+basandoti sulle seguenti analisi parziali del manoscritto (inizio, centro, fine
+e/o blocchi successivi dell'opera):
+
+${partialAnalyses.join("\n\n--- SEZIONE ---\n\n")}
+
+REGOLE DI ATTEGGIAMENTO (IMPORTANTI):
+- La scheda è scritta per l'EDITORE, non per l'autore.
+- Devi essere ANALITICO, ONESTO e SEVERO: non edulcorare i giudizi.
+- Non usare formule vaghe o rassicuranti se il testo è debole.
+- Metti in evidenza TUTTI i limiti che potrebbero rendere il libro non pubblicabile
+  o pubblicabile solo con editing pesante.
+- Quando il testo è debole, fallo capire chiaramente all'editore.
+- NON rivolgerti mai direttamente all'autore.
+
+DATI DI MERCATO (Top 10 narrativa Italia – JSON semplificato):
+${topListSnippet}
+
+Usa questi dati di mercato SOLO per arricchire il punto 12 (confronto con il mercato),
+citando titoli / autori / tendenze in modo concreto, ma SENZA incollare il JSON nel testo finale.
+
+REGOLE FORMALI:
+- Scrivi SEMPRE in italiano.
+- RESTITUISCI SOLO HTML NUDO (nessun markdown, nessun blocco \\\`).
+- Usa SOLO questi tag HTML: <h2>, <h3>, <p>, <ul>, <li>, <strong>.
+- Non inserire note esterne al documento: tutto deve stare dentro i tag HTML.
+- Ogni punto dal 1 al 15 deve contenere testo specifico e non può essere lasciato vuoto.
+- Il punto 14 è OBBLIGATORIO e deve SEMPRE contenere:
+  - almeno un paragrafo discorsivo che analizzi in modo tecnico gli interventi editoriali necessari;
+  - una lista puntata <ul><li> con almeno 7 voci concrete.
+- Nel punto 14 NON devi mai limitarti a frasi introduttive come “Gli interventi specifici consigliati includono:” senza la lista: la lista è obbligatoria.
+- Nel punto 14 non devi mai lasciare testi segnaposto fra parentesi quadre: sostituiscili sempre con contenuti specifici riferiti a questo manoscritto.
+
+
+
+STRUTTURA OBBLIGATORIA DELLA SCHEDA (15 PUNTI):
+
+<h2>Valutazione editoriale – Fermento</h2>
+
+<h3>1. Dati di base</h3>
+<p><strong>Titolo:</strong> ${projectTitle || "Titolo mancante"}</p>
+<p><strong>Autore:</strong> ${projectAuthor || "Autore mancante"}</p>
+<p><strong>Genere dichiarato / percepito:</strong> indica con precisione il genere e l'eventuale sottogenere.</p>
+
+<h3>2. Sintesi del manoscritto</h3>
+<p>Riassunto chiaro, neutro e completo della storia, che copra in modo equilibrato
+inizio, parte centrale e finale. Non limitarti ai primi capitoli.</p>
+
+<h3>3. Genere, tema centrale e sottotemi</h3>
+<p>Indica il genere principale e i temi dominanti. Specifica se il testo appare
+allineato o fuori fuoco rispetto alle aspettative di quel genere.</p>
+
+<h3>4. Struttura narrativa</h3>
+<p>Analizza in modo tecnico la struttura in atti/parti/capitoli, l'uso del punto di vista,
+eventuali flashback, salti temporali, buchi logici. Evidenzia i problemi di struttura
+se incidono sulla leggibilità o sulla tensione.</p>
+
+<h3>5. Trama, coerenza interna e gestione dei conflitti</h3>
+<p>Valuta la solidità della trama, la coerenza logica e la gestione dei conflitti principali.
+Se ci sono svolte poco credibili, forzate o troppo deboli, segnalale in modo esplicito.</p>
+
+<h3>6. Personaggi</h3>
+<p>Analizza i personaggi principali e quelli secondari: tridimensionalità, evoluzione,
+coerenza psicologica, empatia. Se alcuni personaggi sono stereotipati, inutili o poco
+credibili, dillo chiaramente.</p>
+
+<h3>7. Dialoghi</h3>
+<p>Valuta la naturalezza e la funzione narrativa dei dialoghi. Evidenzia eventuali dialoghi
+artificiosi, troppo esplicativi, ridondanti o inutili.</p>
+
+<h3>8. Stile e voce narrativa</h3>
+<p>Descrivi tono, lessico, registro, ritmo della frase. Indica se lo stile è maturo,
+acerbo, ridondante, troppo piatto, e se la voce narrativa è riconoscibile o anonima.</p>
+
+<h3>9. Valutazione grammaticale e ortografica</h3>
+<p>Giudica in modo sintetico ma chiaro: "ottima", "buona", "discreta", "molto da revisionare".
+Se sono presenti pattern ricorrenti di errore (punteggiatura, accordi, tempi verbali,
+italiano incerto), elencali.</p>
+
+<h3>10. Ritmo, leggibilità e tenuta dell'attenzione</h3>
+<p>Commenta il ritmo nelle diverse parti (inizio, centro, finale). Indica se il testo
+rallenta troppo, se ha sezioni prolisse o frettolose, se rischia di annoiare il lettore
+medio. Sii esplicito nel dire dove il libro "si siede".</p>
+
+<h3>11. Originalità e posizionamento</h3>
+<p>Valuta il grado di originalità rispetto al genere e al mercato italiano contemporaneo.
+Specifica se il testo appare derivativo, già visto, oppure se introduce elementi
+veramente distintivi.</p>
+
+<h3>12. Confronto con il mercato (top 10 narrativa italiana)</h3>
+<p>Confronta il manoscritto con i principali bestseller italiani contemporanei, usando i dati
+forniti (titoli, autori, sinossi, tendenze). Indica a quali libri o tendenze si avvicina
+per tono, target e impostazione, e se può realisticamente competere per qualità,
+leggibilità e respiro narrativo.</p>
+
+<h3>13. Potenziale audiovisivo (cinema / serie TV)</h3>
+<p>Valuta se la storia si presta meglio a film singolo, miniserie o serie lunga, e se
+ha davvero un potenziale audiovisivo. Indica anche gli ostacoli concreti: costi di
+produzione, ambientazioni troppo complicate, eccesso di interiorità non visualizzabile.</p>
+
+<h3>14. Interventi editoriali consigliati</h3>
+<p>In questa sezione devi proporre interventi editoriali tecnici e specifici da applicare a questo manoscritto (struttura in atti, tagli o accorpamenti di scene, revisione del punto di vista, miglioramento del ritmo, riscrittura di dialoghi deboli, rafforzamento del finale, ecc.). Il testo deve riferirsi in modo concreto a questo manoscritto e non ripetere le istruzioni generiche del prompt.</p>
+<ul>
+<li>INTERVENTO 1: [sostituisci questo testo con un intervento concreto mirato a struttura, ritmo o conflitti principali del manoscritto].</li>
+<li>INTERVENTO 2: [sostituisci questo testo con un intervento concreto sui personaggi principali (arco di trasformazione, motivazioni, coerenza psicologica)].</li>
+<li>INTERVENTO 3: [sostituisci questo testo con un intervento concreto sui personaggi secondari e sulle sottotrame inutili o ridondanti].</li>
+<li>INTERVENTO 4: [sostituisci questo testo con un intervento concreto sui dialoghi e sulle scene chiave troppo esplicative o deboli].</li>
+<li>INTERVENTO 5: [sostituisci questo testo con un intervento concreto sullo stile e sulla voce narrativa (ridondanze, registro, lessico)].</li>
+<li>INTERVENTO 6: [sostituisci questo testo con un intervento concreto sulla gestione del tempo narrativo e dei flashback].</li>
+<li>INTERVENTO 7: [sostituisci questo testo con un intervento concreto sul finale e sulla coerenza complessiva della storia].</li>
+</ul>
+
+
+<h3>15. Giudizio finale e punteggio</h3>
+<p>
+<strong>Giudizio di pubblicabilità (OBBLIGATORIO, scegli solo uno):</strong><br/>
+- NON PUBBLICABILE<br/>
+- PUBBLICABILE SOLO CON EDITING PROFONDO<br/>
+- PUBBLICABILE SENZA RISERVE<br/><br/>
+
+<strong>Punteggio tecnico (1–10):</strong> assegna un voto SEVERO e REALISTICO.<br/><br/>
+
+Scrivi un paragrafo finale freddo e diretto che spieghi perché il manoscritto è (o non è)
+una scommessa editoriale sensata.
+</p>
+
+---
+RESTITUISCI SOLO HTML.  
+NESSUN ALTRO TESTO.  
+NESSUNA INTRODUZIONE.  
+NESSUNA NOTA FUORI STRUTTURA.
+`;
+
+        const final = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0,
+          messages: [{ role: "user", content: finalPrompt }],
+        });
+
+        const finalText =
+  final.choices?.[0]?.message?.content?.trim() ||
+  "Errore nella valutazione finale.";
+
+let fixedText = applyTypographicFixes(finalText);
+
+// ========================================
+// POST-PROCESSING PUNTO 14 (INTERVENTI)
+// Se non c'è nessuna lista <li>, inseriamo
+// noi 7 interventi tecnici standard.
+// ========================================
+try {
+  const marker14 = "<h3>14. Interventi editoriali consigliati</h3>";
+  const marker15 = "<h3>15. Giudizio finale e punteggio</h3>";
+
+  const idx14 = fixedText.indexOf(marker14);
+  const idx15 = fixedText.indexOf(marker15);
+
+  if (idx14 !== -1 && idx15 !== -1 && idx15 > idx14) {
+    const before14 = fixedText.slice(0, idx14);
+    const after15 = fixedText.slice(idx15);
+    const between = fixedText.slice(idx14, idx15);
+
+    const hasList = between.includes("<li>");
+
+    if (!hasList) {
+      const replacement = `${marker14}
+<p>Per migliorare il manoscritto sono necessari interventi editoriali mirati, di natura strutturale, stilistica e narrativa. Di seguito alcuni interventi tecnici consigliati.</p>
+<ul>
+<li>Ristrutturare la parte centrale eliminando o accorciando le sezioni ridondanti che rallentano il ritmo.</li>
+<li>Rafforzare le motivazioni e l'arco di trasformazione dei personaggi principali nelle scene chiave.</li>
+<li>Ridurre o accorpare i personaggi secondari che non hanno una funzione chiara nella trama.</li>
+<li>Riscrivere i dialoghi troppo esplicativi, rendendoli più naturali e funzionali al conflitto delle scene.</li>
+<li>Semplificare descrizioni e passaggi introspettivi che appesantiscono la lettura senza aggiungere valore.</li>
+<li>Controllare la coerenza temporale (flashback, salti di scena) rendendo più chiara la linea del tempo.</li>
+<li>Rivedere il finale perché risulti più coerente con il percorso dei personaggi e più incisivo per il lettore.</li>
+</ul>
+`;
+
+      fixedText = before14 + replacement + after15;
+    }
+  }
+} catch (e) {
+  console.error("Post-processing punto 14 fallito:", e);
+}
+
+
+        // 4) Salva la valutazione come sempre
+        const evaluations = await loadEvaluations();
+
+        const newEval = {
+          id: Date.now().toString(),
+          projectId: projectId || null, // 🔴 COLLEGAMENTO AL PROJECT (legacy)
+          title: projectTitle || "Titolo mancante",
+          author: projectAuthor || "Autore mancante",
+          date: new Date().toISOString(),
+          html: fixedText,
+        };
+
+        evaluations.push(newEval);
+        await saveEvaluations(evaluations);
+
+        return res.json({
+          success: true,
+          result: fixedText,
+          savedId: newEval.id,
+        });
+      } catch (err) {
+        console.error("Errore valutazione manoscritto:", err);
+        return res.status(500).json({
+          success: false,
+          error: "Errore durante la valutazione del manoscritto.",
+        });
+      }
+    }
+
+    // ===========================
+    // SE SERVE LA VALUTAZIONE PER L'EDITING
+    // ===========================
+    let evaluationSnippet = "";
+
+    // ✅ PRIORITÀ: se il frontend ha passato una valutazione esplicita, usiamo quella
+    if (
+      useEvaluationForEditing &&
+      currentEvaluation &&
+      currentEvaluation.trim().length > 0
+    ) {
+      evaluationSnippet = currentEvaluation.trim().slice(0, 2000);
+      console.log(
+        "Uso valutazione fornita dal frontend, length:",
+        evaluationSnippet.length
+      );
+    }
+    // fallback: vecchia logica basata su projectId + useEvaluation
+    else if (useEvaluation && projectId) {
+      try {
+        const allEvals = await loadEvaluations();
+        const projectEvals = allEvals
+          .filter((ev) => ev.projectId === projectId)
+          .sort(
+            (a, b) =>
+              new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
+          );
+
+        const lastEval = projectEvals[0];
+        if (lastEval) {
+          const rawEval = lastEval.html || lastEval.evaluationText || "";
+          evaluationSnippet = rawEval.slice(0, 20000);
+          console.log(
+            "Trovata valutazione per editing (da file), id:",
+            lastEval.id,
+            "snippet length:",
+            evaluationSnippet.length
+          );
+        } else {
+          console.log(
+            "Nessuna valutazione trovata per projectId:",
+            projectId
+          );
+        }
+      } catch (err) {
+        console.error("Errore nel recupero valutazione per editing:", err);
+      }
+    }
+
+    // 🎯 CORREZIONE FERMENTO (rigida)
     if (mode === "correzione" || mode === "correzione-soft") {
       systemMessage = [
-        "Sei un correttore di bozze editoriale professionista.",
-        "Devi correggere SOLO refusi, punteggiatura, accenti e maiuscole.",
-        "Niente cambi di stile, niente riscritture, niente commenti.",
-        "Restituisci esclusivamente il testo corretto.",
+        "Sei un correttore di bozze editoriale professionista per una casa editrice italiana.",
+        "",
+        "DEVI:",
+        "- Correggere SOLO refusi, errori di battitura, punteggiatura, spazi, maiuscole/minuscole e accenti.",
+        "- NON cambiare stile, registro, ritmo, lessico o contenuto.",
+        "- NON riscrivere, NON semplificare, NON spiegare, NON commentare.",
+        "- NON aggiungere alcuna frase.",
+        "- Mantenere identici paragrafi, a capo e struttura.",
+        "",
+        "Restituisci SOLO il testo corretto.",
       ].join("\n");
 
-      userMessage = text;
+      userMessage = ["Correggi il testo seguente:", "", text].join("\n");
     }
 
-    /* ===========================
-       TRADUZIONE ITA → ENG
-       =========================== */
+    // 🌍 TRADUZIONE ITA → ENG
     else if (mode === "traduzione-it-en") {
       systemMessage = [
-        "Sei un traduttore professionale ITA → ENG.",
-        "Traduce in inglese mantenendo tono e significato.",
-        "Non aggiungere nulla. Non commentare.",
+        "Sei un traduttore professionista dall'italiano all'inglese.",
+        "Mantieni il significato e il tono del testo, ma usa un inglese naturale e scorrevole.",
+        "Non aggiungere spiegazioni, non commentare, non cambiare il contenuto.",
+        "Restituisci SOLO la traduzione inglese.",
       ].join("\n");
 
-      userMessage = text;
+      userMessage = "Traduci in inglese:\n\n" + text;
     }
 
-    /* ===========================
-       EDITING (senza valutazione)
-       =========================== */
+    // ✏️ EDITING (gestione generica per qualunque mode che contenga 'edit' / 'editing')
     else if (
-      mode === "editing-leggero" ||
-      mode === "editing-moderato" ||
-      mode === "editing-profondo"
+      mode &&
+      typeof mode === "string" &&
+      mode.toLowerCase().includes("edit")
     ) {
-      let profile = "";
+      const m = mode.toLowerCase();
 
-      if (mode === "editing-leggero") {
-        profile = "Editing leggero: correggi grammatica e punteggiatura.";
-      } else if (mode === "editing-moderato") {
-        profile =
-          "Editing moderato: migliora ritmo e chiarezza ma mantieni lo stile.";
-      } else {
-        profile =
-          "Editing profondo: riscrivi frasi dure o poco chiare mantenendo contenuto e significato.";
+      let livello = "moderato";
+      if (m.includes("soft") || m.includes("legger")) livello = "leggero";
+      else if (m.includes("profond") || m.includes("deep")) livello = "profondo";
+
+      let dettagliLivello = "";
+
+      if (livello === "leggero") {
+        dettagliLivello = [
+          "- Interventi MINIMI sulla forma delle frasi.",
+          "- Mantieni almeno l'80–90% delle formulazioni originali.",
+          "- Limita l'intervento a piccole riformulazioni dove il testo è davvero rigido o poco chiaro.",
+        ].join("\n");
+      } else if (livello === "moderato") {
+        dettagliLivello = [
+          "- Riscrivi senza esitazione le frasi deboli o prolisse.",
+          "- Migliora ritmo, chiarezza e coesione interna in tutto il testo.",
+          "- Taglia ripetizioni inutili e frasi tortuose.",
+        ].join("\n");
+      } else if (livello === "profondo") {
+        dettagliLivello = [
+          "- Puoi e DEVI riscrivere in modo deciso ogni frase che risulta piatta, prolissa o poco efficace.",
+          "- Il risultato deve essere chiaramente diverso a livello di forma, pur mantenendo identici i contenuti.",
+          "- Rafforza i dialoghi rendendoli naturali e credibili.",
+          "- Migliora il ritmo narrativo tagliando ridondanze e alleggerendo le parti pesanti.",
+        ].join("\n");
       }
 
       systemMessage = [
-        "Sei un editor professionista Fermento.",
-        profile,
-        "Non aggiungere contenuti, non introdurre idee nuove.",
-        "Restituisci solo il testo editato.",
+        "Sei un editor professionista per una casa editrice italiana.",
+        `Devi eseguire un editing ${livello.toUpperCase()} sul testo fornito.`,
+        "",
+        "Indicazioni specifiche per questo livello:",
+        dettagliLivello,
+        "",
+        "Regole generali:",
+        "- Mantieni la storia, i personaggi e le informazioni IDENTICI.",
+        "- NON cambiare gli eventi narrativi né l'ordine delle scene.",
+        "- NON aggiungere nuove scene, personaggi o informazioni.",
+        "- Non trasformare il testo in un riassunto.",
+        "- Rispetta il tono e il registro dell'autore.",
       ].join("\n");
 
-      userMessage = text;
-    }
-
-    /* ===========================
-       VALUTAZIONE MANOSCRITTO
-       =========================== */
-    else if (mode === "valutazione-manoscritto") {
-      systemMessage = [
-        "Sei un valutatore professionale di manoscritti.",
-        "Produci una valutazione strutturata in sezioni.",
-        "Scrivi in modo chiaro, diretto e commerciale.",
-      ].join("\n");
+      if (evaluationSnippet) {
+        systemMessage +=
+          "\n\nISTRUZIONI AGGIUNTIVE (OBBLIGATORIE): " +
+          "devi applicare in modo prioritario la seguente VALUTAZIONE EDITORIALE (estratto). " +
+          "Ogni intervento di editing deve essere coerente con le critiche e gli interventi richiesti qui sotto:\n\n" +
+          evaluationSnippet;
+      }
 
       userMessage = [
-        projectTitle ? `Titolo: ${projectTitle}` : "",
-        projectAuthor ? `Autore: ${projectAuthor}` : "",
+        `Esegui un editing ${livello.toUpperCase()} del seguente testo, mantenendo intatti contenuti e significato:`,
         "",
         text,
       ].join("\n");
     }
 
-    else {
-      return res.status(400).json({
-        success: false,
-        error: `Modalità sconosciuta: ${mode}`,
-      });
+    // fallback
+    if (!userMessage) userMessage = text;
+
+    // ⭐ LIMITATORE DI LUNGHEZZA PER EVITARE ERRORE 128000 TOKEN
+    const MAX_PROMPT_CHARS = 60000;
+    if (userMessage && userMessage.length > MAX_PROMPT_CHARS) {
+      console.log(
+        "userMessage troppo lungo, lo taglio da",
+        userMessage.length,
+        "a",
+        MAX_PROMPT_CHARS
+      );
+      userMessage = userMessage.slice(0, MAX_PROMPT_CHARS);
     }
 
-    /* ===============================
-       Chiamata OpenAI
-       =============================== */
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0,
       messages: [
-        { role: "system", content: systemMessage },
+        { role: "system", content: systemMessage || "" },
         { role: "user", content: userMessage },
       ],
     });
@@ -610,23 +925,29 @@ app.post("/api/ai", async (req, res) => {
 
     const fixedText = applyTypographicFixes(aiText);
 
+    console.log("Risposta OpenAI ricevuta, lunghezza:", fixedText.length);
+
     return res.json({
       success: true,
       result: fixedText,
     });
   } catch (err) {
     console.error("Errore /api/ai:", err);
+    let msg = "Errore interno nel server AI";
+    if (err.response?.data?.error?.message)
+      msg = err.response.data.error.message;
+    else if (err.message) msg = err.message;
 
     return res.status(500).json({
       success: false,
-      error: err.message || "Errore interno nel server AI.",
+      error: msg,
     });
   }
 });
 
-/* ===============================
-   AVVIO SERVER
-   =============================== */
+// ===============================
+// AVVIO SERVER
+// ===============================
 app.listen(PORT, () => {
   console.log(`Fermento AI backend in ascolto su http://localhost:${PORT}`);
 });

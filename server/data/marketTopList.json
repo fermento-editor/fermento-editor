@@ -1,0 +1,62 @@
+[
+  {
+    "titolo": "La bugia dell'orchidea",
+    "autore": "Donato Carrisi",
+    "genere": "Giallo / Thriller",
+    "sinossi": "Un thriller che ruota attorno a un caso intricato e misterioso. Il protagonista deve districarsi tra segreti, menzogne e identità nascoste."
+  },
+  {
+    "titolo": "Mandorla amara",
+    "autore": "Cristina Cassar Scalia",
+    "genere": "Giallo / Thriller",
+    "sinossi": "Il vicequestore Vanina Guarrasi indaga su un caso che affonda le sue radici nel passato. Paesaggio siciliano, segreti e tensioni emotive."
+  },
+  {
+    "titolo": "L'ultimo segreto",
+    "autore": "Dan Brown",
+    "genere": "Thriller storico / cospirazionista",
+    "sinossi": "Una corsa contro il tempo tra arte, simboli e cospirazioni globali. Architetture, codici e segreti antichi scandiscono la trama."
+  },
+  {
+    "titolo": "Miss Bee e il giardino avvelenato",
+    "autore": "Alessia Gazzola",
+    "genere": "Giallo leggero / Medical mystery",
+    "sinossi": "Una protagonista alle prese con un mistero legato a veleni e segreti di famiglia, in un tono leggero e ironico."
+  },
+  {
+    "titolo": "Francesco. Il primo italiano",
+    "autore": "Aldo Cazzullo",
+    "genere": "Saggistica storica",
+    "sinossi": "Racconto della vita di San Francesco, con riflessioni sull'identità italiana e sull'eredità culturale e spirituale del santo."
+  },
+  {
+    "titolo": "Cesare. La conquista dell'eternità",
+    "autore": "Alberto Angela",
+    "genere": "Saggistica storica",
+    "sinossi": "Narrazione divulgativa della vita di Giulio Cesare, con focus sulle campagne militari, sul potere e sulla costruzione della fama eterna."
+  },
+  {
+    "titolo": "Sotto mentite spoglie",
+    "autore": "Antonio Manzini",
+    "genere": "Giallo / Noir",
+    "sinossi": "Un nuovo caso di Rocco Schiavone tra ambiguità morali, cinismo, ambiente montano e conflitti personali."
+  },
+  {
+    "titolo": "Verrà l'alba, starai bene",
+    "autore": "Gianluca Gotto",
+    "genere": "Narrativa / Crescita personale",
+    "sinossi": "Racconto di cambiamento personale, ricerca di felicità, viaggi interiori ed esterni, con forte accento sulla resilienza."
+  },
+  {
+    "titolo": "Il cerchio dei giorni",
+    "autore": "Ken Follett",
+    "genere": "Narrativa storica",
+    "sinossi": "Un nuovo capitolo della saga di Kingsbridge: intrecci politici, sociali e umani in un periodo di grandi trasformazioni storiche."
+  },
+  {
+    "titolo": "L'orologiaio di Brest",
+    "autore": "Maurizio de Giovanni",
+    "genere": "Giallo / Noir",
+    "sinossi": "Un caso misterioso legato a un orologiaio, con atmosfere malinconiche, segreti cittadini e forte carica emotiva."
+  }
+]
