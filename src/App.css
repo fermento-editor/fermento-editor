@@ -497,3 +497,14 @@ button:disabled {
   font-size: 11px;
   border-radius: 999px;
 }
+
+.pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.char-counter {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}

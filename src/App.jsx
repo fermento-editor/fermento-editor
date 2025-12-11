@@ -356,22 +356,28 @@ async function handleExportEvaluationDocx() {
       </header>
 
       <main className="layout">
-        {/* COLONNA SINISTRA */}
-        <section className="column">
-          <h2>Testo originale</h2>
+  {/* COLONNA SINISTRA */}
+  <section className="column">
+    <div className="pane-header">
+      <h2>Testo originale</h2>
+      <span className="char-counter">
+        Caratteri: {inputText ? inputText.length : 0}
+      </span>
+    </div>
 
-          <input
-            type="file"
-            accept=".docx,.pdf"
-            onChange={handleFileUpload}
-            style={{ marginBottom: "8px" }}
-          />
+    <input
+      type="file"
+      accept=".docx,.pdf"
+      onChange={handleFileUpload}
+      style={{ marginBottom: "8px" }}
+    />
 
-          <textarea
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder="Incolla qui il testo o caricalo da file..."
-          />
+    <textarea
+      value={inputText}
+      onChange={(e) => setInputText(e.target.value)}
+      placeholder="Incolla qui il testo o caricalo da file..."
+    />
+
 
           <div className="buttons-row">
             <button
@@ -413,20 +419,26 @@ async function handleExportEvaluationDocx() {
           </div>
         </section>
 
-        {/* COLONNA CENTRALE */}
-        <section className="column">
-          <h2>Risultato AI</h2>
+       {/* COLONNA CENTRALE */}
+<section className="column">
+  <div className="pane-header">
+    <h2>Risultato AI</h2>
+    <span className="char-counter">
+      Caratteri: {outputText ? outputText.length : 0}
+    </span>
+  </div>
 
-          <textarea
-            value={outputText}
-            onChange={(e) => setOutputText(e.target.value)}
-            placeholder="Qui apparirà l'output dell'AI."
-          />
+  <textarea
+    value={outputText}
+    onChange={(e) => setOutputText(e.target.value)}
+    placeholder="Qui apparirà l'output dell'AI."
+  />
 
-          <div className="buttons-row" style={{ marginTop: "8px" }}>
-            <button onClick={handleExportDocx}>Scarica DOCX</button>
-          </div>
-        </section>
+  <div className="buttons-row" style={{ marginTop: "8px" }}>
+    <button onClick={handleExportDocx}>Scarica DOCX</button>
+  </div>
+</section>
+
 
         {/* COLONNA DESTRA */}
         <section className="column">
