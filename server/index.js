@@ -518,7 +518,9 @@ ${chunks[i]}
             messages: [{ role: "user", content: promptPartial }],
           });
 
-          partialAnalyses.push(p.choices?.[0]?.message?.content?.trim() || "");
+          partialAnalyses.push(
+            p.choices?.[0]?.message?.content?.trim() || ""
+          );
         }
 
         // 2bis) Carica la Top 10 bestseller dal file (se disponibile)
@@ -526,7 +528,6 @@ ${chunks[i]}
         try {
           const topList = await loadMarketTopList();
           if (Array.isArray(topList) && topList.length > 0) {
-            // JSON "tagliato" per non esplodere il prompt
             topListSnippet = JSON.stringify(topList).slice(0, 15000);
           }
         } catch (err) {
@@ -568,8 +569,6 @@ REGOLE FORMALI:
   - una lista puntata <ul><li> con almeno 7 voci concrete.
 - Nel punto 14 NON devi mai limitarti a frasi introduttive come “Gli interventi specifici consigliati includono:” senza la lista: la lista è obbligatoria.
 - Nel punto 14 non devi mai lasciare testi segnaposto fra parentesi quadre: sostituiscili sempre con contenuti specifici riferiti a questo manoscritto.
-
-
 
 STRUTTURA OBBLIGATORIA DELLA SCHEDA (15 PUNTI):
 
@@ -648,7 +647,6 @@ produzione, ambientazioni troppo complicate, eccesso di interiorità non visuali
 <li>INTERVENTO 7: [sostituisci questo testo con un intervento concreto sul finale e sulla coerenza complessiva della storia].</li>
 </ul>
 
-
 <h3>15. Giudizio finale e punteggio</h3>
 <p>
 <strong>Giudizio di pubblicabilità (OBBLIGATORIO, scegli solo uno):</strong><br/>
@@ -676,32 +674,30 @@ NESSUNA NOTA FUORI STRUTTURA.
         });
 
         const finalText =
-  final.choices?.[0]?.message?.content?.trim() ||
-  "Errore nella valutazione finale.";
+          final.choices?.[0]?.message?.content?.trim() ||
+          "Errore nella valutazione finale.";
 
-let fixedText = applyTypographicFixes(finalText);
+        let fixedText = applyTypographicFixes(finalText);
 
-// ========================================
-// POST-PROCESSING PUNTO 14 (INTERVENTI)
-// Se non c'è nessuna lista <li>, inseriamo
-// noi 7 interventi tecnici standard.
-// ========================================
-try {
-  const marker14 = "<h3>14. Interventi editoriali consigliati</h3>";
-  const marker15 = "<h3>15. Giudizio finale e punteggio</h3>";
+        // ========================================
+        // POST-PROCESSING PUNTO 14 (INTERVENTI)
+        // ========================================
+        try {
+          const marker14 = "<h3>14. Interventi editoriali consigliati</h3>";
+          const marker15 = "<h3>15. Giudizio finale e punteggio</h3>";
 
-  const idx14 = fixedText.indexOf(marker14);
-  const idx15 = fixedText.indexOf(marker15);
+          const idx14 = fixedText.indexOf(marker14);
+          const idx15 = fixedText.indexOf(marker15);
 
-  if (idx14 !== -1 && idx15 !== -1 && idx15 > idx14) {
-    const before14 = fixedText.slice(0, idx14);
-    const after15 = fixedText.slice(idx15);
-    const between = fixedText.slice(idx14, idx15);
+          if (idx14 !== -1 && idx15 !== -1 && idx15 > idx14) {
+            const before14 = fixedText.slice(0, idx14);
+            const after15 = fixedText.slice(idx15);
+            const between = fixedText.slice(idx14, idx15);
 
-    const hasList = between.includes("<li>");
+            const hasList = between.includes("<li>");
 
-    if (!hasList) {
-      const replacement = `${marker14}
+            if (!hasList) {
+              const replacement = `${marker14}
 <p>Per migliorare il manoscritto sono necessari interventi editoriali mirati, di natura strutturale, stilistica e narrativa. Di seguito alcuni interventi tecnici consigliati.</p>
 <ul>
 <li>Ristrutturare la parte centrale eliminando o accorciando le sezioni ridondanti che rallentano il ritmo.</li>
@@ -714,20 +710,19 @@ try {
 </ul>
 `;
 
-      fixedText = before14 + replacement + after15;
-    }
-  }
-} catch (e) {
-  console.error("Post-processing punto 14 fallito:", e);
-}
-
+              fixedText = before14 + replacement + after15;
+            }
+          }
+        } catch (e) {
+          console.error("Post-processing punto 14 fallito:", e);
+        }
 
         // 4) Salva la valutazione come sempre
         const evaluations = await loadEvaluations();
 
         const newEval = {
           id: Date.now().toString(),
-          projectId: projectId || null, // 🔴 COLLEGAMENTO AL PROJECT (legacy)
+          projectId: projectId || null,
           title: projectTitle || "Titolo mancante",
           author: projectAuthor || "Autore mancante",
           date: new Date().toISOString(),
@@ -756,7 +751,6 @@ try {
     // ===========================
     let evaluationSnippet = "";
 
-    // ✅ PRIORITÀ: se il frontend ha passato una valutazione esplicita, usiamo quella
     if (
       useEvaluationForEditing &&
       currentEvaluation &&
@@ -767,16 +761,15 @@ try {
         "Uso valutazione fornita dal frontend, length:",
         evaluationSnippet.length
       );
-    }
-    // fallback: vecchia logica basata su projectId + useEvaluation
-    else if (useEvaluation && projectId) {
+    } else if (useEvaluation && projectId) {
       try {
         const allEvals = await loadEvaluations();
         const projectEvals = allEvals
           .filter((ev) => ev.projectId === projectId)
           .sort(
             (a, b) =>
-              new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
+              new Date(b.date || 0).getTime() -
+              new Date(a.date || 0).getTime()
           );
 
         const lastEval = projectEvals[0];
@@ -830,7 +823,7 @@ try {
       userMessage = "Traduci in inglese:\n\n" + text;
     }
 
-    // ✏️ EDITING (gestione generica per qualunque mode che contenga 'edit' / 'editing')
+    // ✏️ EDITING – GESTITO A CHUNK DA 15.000 CARATTERI
     else if (
       mode &&
       typeof mode === "string" &&
@@ -865,7 +858,7 @@ try {
         ].join("\n");
       }
 
-      systemMessage = [
+      let baseSystemMessage = [
         "Sei un editor professionista per una casa editrice italiana.",
         `Devi eseguire un editing ${livello.toUpperCase()} sul testo fornito.`,
         "",
@@ -881,28 +874,79 @@ try {
       ].join("\n");
 
       if (evaluationSnippet) {
-        systemMessage +=
+        baseSystemMessage +=
           "\n\nISTRUZIONI AGGIUNTIVE (OBBLIGATORIE): " +
           "devi applicare in modo prioritario la seguente VALUTAZIONE EDITORIALE (estratto). " +
           "Ogni intervento di editing deve essere coerente con le critiche e gli interventi richiesti qui sotto:\n\n" +
           evaluationSnippet;
       }
 
-      userMessage = [
-        `Esegui un editing ${livello.toUpperCase()} del seguente testo, mantenendo intatti contenuti e significato:`,
-        "",
-        text,
-      ].join("\n");
+      const chunks = chunkText(text, 15000);
+      console.log(
+        "EDITING a chunk, mode:",
+        mode,
+        "numero chunks:",
+        chunks.length
+      );
+
+      let allEdited = "";
+      const MAX_PROMPT_CHARS_LOCAL = 60000;
+
+      for (let i = 0; i < chunks.length; i++) {
+        let chunk = chunks[i];
+
+        let chunkUserMessage = [
+          `Esegui un editing ${livello.toUpperCase()} del seguente testo, mantenendo intatti contenuti e significato.`,
+          `Questa è la sezione ${i + 1}/${chunks.length} del manoscritto.`,
+          "",
+          chunk,
+        ].join("\n");
+
+        if (chunkUserMessage.length > MAX_PROMPT_CHARS_LOCAL) {
+          console.log(
+            "chunkUserMessage troppo lungo, lo taglio da",
+            chunkUserMessage.length,
+            "a",
+            MAX_PROMPT_CHARS_LOCAL
+          );
+          chunkUserMessage = chunkUserMessage.slice(0, MAX_PROMPT_CHARS_LOCAL);
+        }
+
+        const completionChunk = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0,
+          messages: [
+            { role: "system", content: baseSystemMessage },
+            { role: "user", content: chunkUserMessage },
+          ],
+        });
+
+        const aiChunk =
+          completionChunk.choices?.[0]?.message?.content?.trim() || "";
+
+        const fixedChunk = applyTypographicFixes(aiChunk);
+
+        console.log(
+          `Chunk ${i + 1}/${chunks.length} editato, lunghezza:`,
+          fixedChunk.length
+        );
+
+        allEdited += fixedChunk + "\n\n";
+      }
+
+      return res.json({
+        success: true,
+        result: allEdited.trim(),
+      });
     }
 
-    // fallback
+    // Fallback per tutte le altre modalità (correzione, traduzione, ecc.)
     if (!userMessage) userMessage = text;
 
-    // ⭐ LIMITATORE DI LUNGHEZZA PER EVITARE ERRORE 128000 TOKEN
     const MAX_PROMPT_CHARS = 60000;
     if (userMessage && userMessage.length > MAX_PROMPT_CHARS) {
       console.log(
-        "userMessage troppo lungo, lo taglio da",
+        "userMessage troppo lungo (fallback generico), lo taglio da",
         userMessage.length,
         "a",
         MAX_PROMPT_CHARS
@@ -925,7 +969,10 @@ try {
 
     const fixedText = applyTypographicFixes(aiText);
 
-    console.log("Risposta OpenAI ricevuta, lunghezza:", fixedText.length);
+    console.log(
+      "Risposta OpenAI ricevuta (fallback generico), lunghezza:",
+      fixedText.length
+    );
 
     return res.json({
       success: true,
@@ -944,6 +991,8 @@ try {
     });
   }
 });
+
+
 
 // ===============================
 // AVVIO SERVER

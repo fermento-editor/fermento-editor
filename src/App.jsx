@@ -7,7 +7,7 @@ const isLocalHost =
 
 const API_BASE = isLocalHost
   ? "http://localhost:3001"
-  : "https://fermento-editor.onrender.com";
+   : "https://fermento-editor-backed.onrender.com";
 
 const EVAL_STORAGE_KEY = "fermento-editor-evaluations-v1";
 
