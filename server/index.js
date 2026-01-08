@@ -236,49 +236,41 @@ app.post("/api/upload", upload.single("file"), handleUpload);
 //   EXPORT HTML -> DOCX
 // ===============================
 
+// ===============================
+//   EXPORT HTML -> DOCX
+// ===============================
+
 app.post("/api/export-docx", async (req, res) => {
   try {
     const { html } = req.body;
-    if (!html) {
+
+    if (!html || typeof html !== "string") {
       return res.status(400).json({
         success: false,
         error: "html mancante nel body",
       });
     }
 
-    // Partiamo dall'HTML ricevuto
+    // 1) Partiamo dall'HTML ricevuto (può essere solo <p>...</p>)
     let safeHtml = html;
 
-    // 1) Piccola pulizia virgolette “strane”
+    // 2) Mini-pulizia NON distruttiva
     safeHtml = safeHtml
-      // sistema casi come: La valutazione è" discreta"
       .replace(/è\"/g, 'è "')
-      .replace(/\"/g, '"')
-      // elimina eventuali doppi spazi orizzontali
-      .replace(/ {2,}/g, " ");
+      .replace(/\"/g, '"');
 
-    // 2) Evita blocchi di righe vuote (riduce l'effetto "spazi doppi")
-    safeHtml = safeHtml.replace(/(\r?\n\s*){2,}/g, "\n");
+    // 3) WRAP FONDAMENTALE: html-to-docx vuole una pagina HTML completa
+    const wrappedHtml = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    ${safeHtml}
+  </body>
+</html>`;
 
-    // 3) NON tocchiamo più <ul> e <li>: lasciamo le liste native
-    //    così html-to-docx gestisce correttamente i bullet.
-
-    // 4) Manteniamo i titoli come paragrafi in grassetto
-    safeHtml = safeHtml
-      .replace(/<h2>/gi, '<p><strong>')
-      .replace(/<\/h2>/gi, '</strong></p>')
-      .replace(/<h3>/gi, '<p><strong>')
-      .replace(/<\/h3>/gi, '</strong></p>');
-
-    // 5) Impostiamo margine 0 ai paragrafi
-    //    (riduce la spaziatura verticale tra un paragrafo e l’altro)
-    safeHtml = safeHtml.replace(
-      /<p(\s*[^>]*)?>/gi,
-      '<p$1 style="margin-top:0;margin-bottom:0;line-height:1.15;">'
-    );
-
-    const docxBuffer = await htmlToDocx(safeHtml, null, {
-      // qualche opzione di base, non obbligatoria ma innocua
+    const docxBuffer = await htmlToDocx(wrappedHtml, null, {
       font: "Times New Roman",
       fontSize: 24, // 12 pt
     });
@@ -301,8 +293,6 @@ app.post("/api/export-docx", async (req, res) => {
     });
   }
 });
-
-
 
 // ===========================
 //  API VALUTAZIONI (GET / POST / DELETE / DOCX)
