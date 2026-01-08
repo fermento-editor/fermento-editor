@@ -18,6 +18,10 @@ function App() {
   const [inputText, setInputText] = useState("");
   const [outputText, setOutputText] = useState("");
 
+  const [inputHtml, setInputHtml] = useState("");   // HTML originale da DOCX
+const [outputHtml, setOutputHtml] = useState(""); // HTML editato dall’AI
+
+
   const [currentEvaluation, setCurrentEvaluation] = useState("");
   const [evaluations, setEvaluations] = useState([]);
   const [isLoadingEvals, setIsLoadingEvals] = useState(false);
@@ -91,14 +95,17 @@ function App() {
         return;
       }
 
-      setInputText(data.text || "");
-    } catch (err) {
-      console.error("Errore upload file:", err);
-      alert("Errore durante l'upload del file.");
-    } finally {
-      e.target.value = "";
-    }
-  }
+           const imported = data.text || "";
+      setInputText(imported);
+
+      if (data.type === "docx") {
+        setInputHtml(imported);
+        setOutputHtml("");
+      } else {
+        setInputHtml("");
+        setOutputHtml("");
+      }
+
 
   // ===========================
   // SALVATAGGIO / CANCELLAZIONE VALUTAZIONI (solo localStorage)
@@ -242,7 +249,13 @@ function App() {
         // opzionale: pulisco il centro per evitare confusione
         // setOutputText("");
       } else {
-        setOutputText(output);
+                setOutputText(output);
+
+        const isHtml = /<\/?(p|strong|em|ul|ol|li|h2|h3|br)\b/i.test(output);
+        if (isHtml) {
+          setOutputHtml(output);
+        }
+
       }
     } catch (err) {
       console.error("Errore chiamata AI:", err);
@@ -255,29 +268,37 @@ function App() {
   // ===========================
   // EXPORT DOCX TESTO
   // ===========================
-  async function handleExportDocx() {
-    const textToExport =
-      (outputText && outputText.trim()) || inputText.trim();
+    async function handleExportDocx() {
+    let htmlToExport = "";
 
-    if (!textToExport) {
-      alert("Non c'è nessun testo da esportare.");
-      return;
+    if (outputHtml && outputHtml.trim()) {
+      htmlToExport = outputHtml.trim();
+    } else if (inputHtml && inputHtml.trim()) {
+      htmlToExport = inputHtml.trim();
+    } else {
+      const textToExport =
+        (outputText && outputText.trim()) || inputText.trim();
+
+      if (!textToExport) {
+        alert("Non c'è nessun testo da esportare.");
+        return;
+      }
+
+      const rawParagraphs = textToExport
+        .split(/\n{2,}/)
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0);
+
+      htmlToExport = rawParagraphs
+        .map((p) => `<p>${p.replace(/\n/g, "<br/>")}</p>`)
+        .join("\n");
     }
-
-    const rawParagraphs = textToExport
-      .split(/\n{2,}/)
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
-
-    const htmlParagraphs = rawParagraphs
-      .map((p) => `<p>${p.replace(/\n/g, "<br/>")}</p>`)
-      .join("\n");
 
     try {
       const res = await fetch(`${API_BASE}/api/export-docx`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ html: htmlParagraphs }),
+        body: JSON.stringify({ html: htmlToExport }),
       });
 
       if (!res.ok) {
@@ -302,6 +323,7 @@ function App() {
       alert("Errore di rete durante l'esportazione in DOCX.");
     }
   }
+
 
   // ===========================
 // EXPORT DOCX VALUTAZIONE
