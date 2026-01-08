@@ -105,6 +105,13 @@ const [outputHtml, setOutputHtml] = useState(""); // HTML editato dall’AI
         setInputHtml("");
         setOutputHtml("");
       }
+    } catch (err) {
+      console.error("Errore upload file:", err);
+      alert("Errore durante l'upload del file.");
+    } finally {
+      e.target.value = "";
+    }
+  }
 
 
   // ===========================
@@ -244,19 +251,22 @@ const [outputHtml, setOutputHtml] = useState(""); // HTML editato dall’AI
       // 🔴 QUI RISOLVIAMO IL PROBLEMA:
       // - se è una VALUTAZIONE, scriviamo nella colonna DESTRA
       // - altrimenti nella colonna CENTRALE
-      if (mode === "valutazione-manoscritto") {
-        setCurrentEvaluation(output);
-        // opzionale: pulisco il centro per evitare confusione
-        // setOutputText("");
-      } else {
-                setOutputText(output);
+     if (mode === "valutazione-manoscritto") {
+  setCurrentEvaluation(output);
+  // opzionale: pulisco il centro per evitare confusione
+  // setOutputText("");
+} else {
+  setOutputText(output);
 
-        const isHtml = /<\/?(p|strong|em|ul|ol|li|h2|h3|br)\b/i.test(output);
-        if (isHtml) {
-          setOutputHtml(output);
-        }
+  const isHtml = /<\/?(p|strong|em|ul|ol|li|h2|h3|br)\b/i.test(output);
+  if (isHtml) {
+    setOutputHtml(output);
+  } else {
+    setOutputHtml(""); // evita di esportare HTML vecchio
+  }
+}
 
-      }
+
     } catch (err) {
       console.error("Errore chiamata AI:", err);
       alert("Errore nella chiamata AI: " + err.message);
