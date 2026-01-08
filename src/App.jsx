@@ -95,16 +95,27 @@ const [outputHtml, setOutputHtml] = useState(""); // HTML editato dall’AI
         return;
       }
 
-           const imported = data.text || "";
-      setInputText(imported);
+      const importedHtml = data.text || "";
 
+      // 1) Nel textarea di sinistra vogliamo testo pulito (senza tag)
+      const plain = importedHtml
+        .replace(/<\/p>\s*<p>/gi, "\n\n")
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&nbsp;/g, " ")
+        .trim();
+
+      setInputText(plain);
+
+      // 2) Ma per l'export DOCX dobbiamo conservare l'HTML
       if (data.type === "docx") {
-        setInputHtml(imported);
+        setInputHtml(importedHtml);
         setOutputHtml("");
       } else {
         setInputHtml("");
         setOutputHtml("");
       }
+
     } catch (err) {
       console.error("Errore upload file:", err);
       alert("Errore durante l'upload del file.");
