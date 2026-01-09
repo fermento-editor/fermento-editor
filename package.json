@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "html-to-docx": "^1.8.0",
     "pdf-parse": "^2.4.5",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

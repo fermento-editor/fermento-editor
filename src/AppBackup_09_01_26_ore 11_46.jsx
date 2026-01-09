@@ -7,7 +7,7 @@ const isLocalHost =
 
 const API_BASE = isLocalHost
   ? "http://localhost:3001"
-  : "https://fermento-editor.onrender.com";
+   : "https://fermento-editor-backed.onrender.com";
 
 const EVAL_STORAGE_KEY = "fermento-editor-evaluations-v1";
 
@@ -17,6 +17,12 @@ function App() {
   // ===========================
   const [inputText, setInputText] = useState("");
   const [outputText, setOutputText] = useState("");
+
+  const [inputHtml, setInputHtml] = useState("");   // HTML originale da DOCX
+  const [outputHtml, setOutputHtml] = useState(""); // HTML editato dall’AI
+  const [uploadedDocxFile, setUploadedDocxFile] = useState(null); // file DOCX originale caricato
+
+
 
   const [currentEvaluation, setCurrentEvaluation] = useState("");
   const [evaluations, setEvaluations] = useState([]);
@@ -30,6 +36,23 @@ function App() {
 
   // ✅ nuovo: preferenza se l’editing deve usare la valutazione
   const [useEvalForEditing, setUseEvalForEditing] = useState(false);
+
+    function stripHtmlToText(html) {
+    if (!html) return "";
+    return html
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>\s*<p[^>]*>/gi, "\n\n")
+      .replace(/<\/?p[^>]*>/gi, "")
+      .replace(/<\/?(strong|em|u|h1|h2|h3|h4|h5|h6)[^>]*>/gi, "")
+      .replace(/<\/?li[^>]*>/gi, "\n- ")
+      .replace(/<\/?(ul|ol)[^>]*>/gi, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .trim();
+  }
+
 
   // ===========================
   // CARICAMENTO VALUTAZIONI (localStorage)
@@ -91,7 +114,22 @@ function App() {
         return;
       }
 
-      setInputText(data.text || "");
+           const imported = data.text || "";
+
+      if (data.type === "docx") {
+   setUploadedDocxFile(file);              // ✅ memorizzo il DOCX originale
+   setInputHtml(imported);                 // HTML formattato per anteprima/export
+    setInputText(stripHtmlToText(imported));// testo pulito per textarea/AI
+   setOutputHtml("");
+} else {
+    setUploadedDocxFile(null);
+    setInputText(imported);
+    setInputHtml("");
+    setOutputHtml("");
+}
+
+
+
     } catch (err) {
       console.error("Errore upload file:", err);
       alert("Errore durante l'upload del file.");
@@ -99,6 +137,7 @@ function App() {
       e.target.value = "";
     }
   }
+
 
   // ===========================
   // SALVATAGGIO / CANCELLAZIONE VALUTAZIONI (solo localStorage)
@@ -185,7 +224,7 @@ function App() {
         mode === "editing-leggero" ||
         mode === "editing-moderato" ||
         mode === "editing-profondo" ||
-        mode === "traduzione-it-en";
+       
 
       if (isEditingMode) {
         body.useEvaluationForEditing = useEvalForEditing;
@@ -237,13 +276,26 @@ function App() {
       // 🔴 QUI RISOLVIAMO IL PROBLEMA:
       // - se è una VALUTAZIONE, scriviamo nella colonna DESTRA
       // - altrimenti nella colonna CENTRALE
-      if (mode === "valutazione-manoscritto") {
-        setCurrentEvaluation(output);
-        // opzionale: pulisco il centro per evitare confusione
-        // setOutputText("");
-      } else {
-        setOutputText(output);
-      }
+     if (mode === "valutazione-manoscritto") {
+  setCurrentEvaluation(output);
+  // opzionale: pulisco il centro per evitare confusione
+  // setOutputText("");
+} else {
+  setOutputText(output);
+
+  const isHtml = /<\/?(p|strong|em|ul|ol|li|h2|h3|br)\b/i.test(output);
+
+  if (isHtml) {
+    // se AI ha già restituito HTML, lo usiamo così com'è
+    setOutputHtml(output);
+  } else {
+   // se AI restituisce testo "pulito", lo convertiamo in HTML rich (paragrafi + liste + bold/italic)
+    setOutputHtml(textToHtmlRich(output));
+
+  }
+}
+
+
     } catch (err) {
       console.error("Errore chiamata AI:", err);
       alert("Errore nella chiamata AI: " + err.message);
@@ -255,7 +307,83 @@ function App() {
   // ===========================
   // EXPORT DOCX TESTO
   // ===========================
-  async function handleExportDocx() {
+function escapeHtml(s) {
+  return (s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function textToHtmlRich(text) {
+  const t = (text || "").trim();
+  if (!t) return "";
+
+  // 1) split in righe
+  const lines = t.replace(/\r\n/g, "\n").split("\n");
+
+  // 2) costruiamo HTML: paragrafi + liste
+  let out = [];
+  let inList = false;
+
+  const applyInline = (s) => {
+    let x = escapeHtml(s);
+
+    // **grassetto**
+    x = x.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+
+    // *corsivo* (semplice)
+    x = x.replace(/(^|[^*])\*(?!\s)(.+?)(?<!\s)\*(?!\*)/g, "$1<em>$2</em>");
+
+    return x;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const line = raw.trim();
+
+    // riga vuota = chiude lista e crea "stacco"
+    if (!line) {
+      if (inList) {
+        out.push("</ul>");
+        inList = false;
+      }
+      continue;
+    }
+
+    // lista tipo "- voce"
+    if (/^-\s+/.test(line)) {
+      if (!inList) {
+        out.push("<ul>");
+        inList = true;
+      }
+      const item = line.replace(/^-\s+/, "");
+      out.push(`<li>${applyInline(item)}</li>`);
+      continue;
+    }
+
+    // se eravamo in lista e arriva testo normale, chiudiamo lista
+    if (inList) {
+      out.push("</ul>");
+      inList = false;
+    }
+
+    out.push(`<p>${applyInline(line)}</p>`);
+  }
+
+  if (inList) out.push("</ul>");
+
+  return out.join("\n");
+}
+
+    async function handleExportDocx() {
+  // 1) scelgo cosa esportare (AI se c'è, altrimenti DOCX originale, altrimenti testo)
+  let htmlToExport = "";
+
+  if (outputHtml && outputHtml.trim()) {
+    htmlToExport = outputHtml.trim();
+  } else if (inputHtml && inputHtml.trim()) {
+    htmlToExport = inputHtml.trim();
+  } else {
     const textToExport =
       (outputText && outputText.trim()) || inputText.trim();
 
@@ -264,44 +392,56 @@ function App() {
       return;
     }
 
-    const rawParagraphs = textToExport
-      .split(/\n{2,}/)
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
+    htmlToExport = textToHtmlRich(textToExport);
 
-    const htmlParagraphs = rawParagraphs
-      .map((p) => `<p>${p.replace(/\n/g, "<br/>")}</p>`)
-      .join("\n");
-
-    try {
-      const res = await fetch(`${API_BASE}/api/export-docx`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ html: htmlParagraphs }),
-      });
-
-      if (!res.ok) {
-        const txt = await res.text();
-        console.error("Errore export-docx:", txt);
-        alert("Errore durante l'esportazione in DOCX.");
-        return;
-      }
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "fermento-document.docx";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Errore network export DOCX:", err);
-      alert("Errore di rete durante l'esportazione in DOCX.");
-    }
   }
+
+  // 2) tolgo subito le scritte tecniche tipo: **Sezione 2/3 - Editing Profondo**
+  htmlToExport = htmlToExport
+  .replace(/(\*\*)?\s*Sezione\s+\d+\s*\/\s*\d+\s*-\s*[^<\n]+(\*\*)?/gi, "")
+  .replace(/<p>\s*(\*\*)?\s*Sezione\s+\d+\s*\/\s*\d+\s*-\s*[^<]+(\*\*)?\s*<\/p>/gi, "")
+  .trim();
+
+
+  // 3) per preservare formattazione devo avere un DOCX caricato
+  if (!uploadedDocxFile) {
+    alert("Per esportare mantenendo la formattazione devi prima caricare un file DOCX.");
+    return;
+  }
+
+  try {
+    const fd = new FormData();
+    fd.append("file", uploadedDocxFile);
+    fd.append("html", htmlToExport);
+
+    const res = await fetch(`${API_BASE}/api/docx/editing-preserve`, {
+      method: "POST",
+      body: fd,
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      console.error("Errore editing-preserve:", txt);
+      alert("Errore durante l'esportazione DOCX (preserva).");
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "fermento-document.docx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    console.error("Errore network export DOCX:", err);
+    alert("Errore di rete durante l'esportazione in DOCX.");
+  }
+}
+
 
   // ===========================
 // EXPORT DOCX VALUTAZIONE
@@ -356,28 +496,53 @@ async function handleExportEvaluationDocx() {
       </header>
 
       <main className="layout">
-        {/* COLONNA SINISTRA */}
-        <section className="column">
-          <h2>Testo originale</h2>
+  {/* COLONNA SINISTRA */}
+  <section className="column">
+    <div className="pane-header">
+      <h2>Testo originale</h2>
+      <span className="char-counter">
+        Caratteri: {inputText ? inputText.length : 0}
+      </span>
+    </div>
 
-          <input
-            type="file"
-            accept=".docx,.pdf"
-            onChange={handleFileUpload}
-            style={{ marginBottom: "8px" }}
-          />
+    <input
+      type="file"
+      accept=".docx,.pdf"
+      onChange={handleFileUpload}
+      style={{ marginBottom: "8px" }}
+    />
 
-          <textarea
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder="Incolla qui il testo o caricalo da file..."
-          />
+    <textarea
+      value={inputText}
+      onChange={(e) => setInputText(e.target.value)}
+      placeholder="Incolla qui il testo o caricalo da file..."
+    />
+{inputHtml && inputHtml.trim() && (
+  <div
+    style={{
+      marginTop: "10px",
+      padding: "10px",
+      border: "1px solid #ddd",
+      borderRadius: "8px",
+      background: "#fff",
+      maxHeight: "260px",
+      overflow: "auto",
+    }}
+  >
+    <div style={{ fontSize: "12px", fontWeight: 700, marginBottom: "6px" }}>
+      Anteprima formattata (da DOCX)
+    </div>
+    <div dangerouslySetInnerHTML={{ __html: inputHtml }} />
+  </div>
+)}
+
 
           <div className="buttons-row">
             <button
               onClick={() => callAi("correzione-soft")}
               disabled={isAiLoading}
             >
+                   
               {isAiLoading && lastAiMode === "correzione-soft"
                 ? "AI: correzione..."
                 : "Correzione testo"}
@@ -413,20 +578,52 @@ async function handleExportEvaluationDocx() {
           </div>
         </section>
 
-        {/* COLONNA CENTRALE */}
-        <section className="column">
-          <h2>Risultato AI</h2>
+       {/* COLONNA CENTRALE */}
+<section className="column">
+  <div className="pane-header">
+    <h2>Risultato AI</h2>
+    <span className="char-counter">
+      Caratteri: {outputText ? outputText.length : 0}
+    </span>
+  </div>
 
-          <textarea
-            value={outputText}
-            onChange={(e) => setOutputText(e.target.value)}
-            placeholder="Qui apparirà l'output dell'AI."
-          />
+  <textarea
+    value={outputText}
+    onChange={(e) => setOutputText(e.target.value)}
+    placeholder="Qui apparirà l'output dell'AI."
+  />
 
-          <div className="buttons-row" style={{ marginTop: "8px" }}>
-            <button onClick={handleExportDocx}>Scarica DOCX</button>
-          </div>
-        </section>
+  <div className="buttons-row" style={{ marginTop: "8px" }}>
+    <button onClick={handleExportDocx}>Scarica DOCX</button>
+  </div>
+</section>
+
+{/* ===========================
+    ANTEPRIMA FORMATTATA
+   =========================== */}
+{(outputHtml || inputHtml) && (
+  <section className="column">
+    <div className="pane-header">
+      <h2>Anteprima formattata</h2>
+      <span className="char-counter">
+        {outputHtml ? "da AI (outputHtml)" : "da DOCX (inputHtml)"}
+      </span>
+    </div>
+
+    <div
+      style={{
+        border: "1px solid #ddd",
+        borderRadius: "8px",
+        padding: "10px",
+        background: "#fff",
+        maxHeight: "320px",
+        overflow: "auto",
+      }}
+      dangerouslySetInnerHTML={{ __html: outputHtml || inputHtml }}
+    />
+  </section>
+)}
+
 
         {/* COLONNA DESTRA */}
         <section className="column">

@@ -293,69 +293,6 @@ app.post("/api/export-docx", async (req, res) => {
     });
   }
 });
-// ===============================
-//   DOCX PRESERVE (multipart) - alias operativo
-// ===============================
-// Riceve: FormData con
-// - file: DOCX originale
-// - html: HTML finale da esportare
-app.post("/api/docx/editing-preserve", upload.single("file"), async (req, res) => {
-  try {
-    const html = req.body?.html;
- 
-
-    if (!html || typeof html !== "string") {
-      return res.status(400).json({
-        success: false,
-        error: "html mancante nel body (multipart)",
-      });
-    }
-
-    // (facoltativo ma utile) qui puoi vedere se il file arriva davvero
-    // const originalName = req.file?.originalname;
-
-    // 1) Partiamo dall'HTML ricevuto
-    let safeHtml = html;
-
-    // 2) Mini-pulizia NON distruttiva (stessa della export-docx)
-    safeHtml = safeHtml
-      .replace(/è\"/g, 'è "')
-      .replace(/\"/g, '"');
-
-    // 3) WRAP completo per html-to-docx
-    const wrappedHtml = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-  </head>
-  <body>
-    ${safeHtml}
-  </body>
-</html>`;
-
-    const docxBuffer = await htmlToDocx(wrappedHtml, null, {
-      font: "Times New Roman",
-      fontSize: 24, // 12 pt
-    });
-
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    );
-    res.setHeader(
-      "Content-Disposition",
-      'attachment; filename="OUT.docx"'
-    );
-
-    return res.end(docxBuffer);
-  } catch (err) {
-    console.error("Errore /api/docx/editing-preserve:", err);
-    return res.status(500).json({
-      success: false,
-      error: "Errore durante la conversione in DOCX (preserve)",
-    });
-  }
-});
 
 // ===========================
 //  API VALUTAZIONI (GET / POST / DELETE / DOCX)
@@ -428,7 +365,7 @@ app.get("/api/evaluations/:id/docx", async (req, res) => {
 
     const html = found.html || found.evaluationText || "";
 
-    const docxBuffer = await htmlToDocx(wrappedHtml, null, { font: "Times New Roman", fontSize: 24 });
+    const docxBuffer = await htmlToDocx(html, null, {});
 
     res.setHeader(
       "Content-Type",
@@ -912,25 +849,19 @@ NESSUNA NOTA FUORI STRUTTURA.
       }
 
       let baseSystemMessage = [
-  "Sei un editor professionista per una casa editrice italiana.",
-  `Devi eseguire un editing ${livello.toUpperCase()} sul testo fornito.`,
-  "",
-  "Indicazioni specifiche per questo livello:",
-  dettagliLivello,
-  "",
-  "Regole generali:",
-  "- Mantieni la storia, i personaggi e le informazioni IDENTICI.",
-  "- NON cambiare gli eventi narrativi né l'ordine delle scene.",
-  "- NON aggiungere nuove scene, personaggi o informazioni.",
-  "- Non trasformare il testo in un riassunto.",
-  "- Rispetta il tono e il registro dell'autore.",
-  "",
-  "REGOLA DI OUTPUT (OBBLIGATORIA):",
-  "- Devi restituire SOLO HTML NUDO (nessun markdown, nessun **, nessun titolo tipo 'Sezione 1/3').",
-  "- Usa SOLO questi tag: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
-  "- Mantieni i paragrafi: ogni paragrafo deve essere un <p>...</p>.",
-  "- NON inserire mai la parola 'Sezione' o frazioni tipo 1/3 nel testo restituito.",
-  ].join("\n");
+        "Sei un editor professionista per una casa editrice italiana.",
+        `Devi eseguire un editing ${livello.toUpperCase()} sul testo fornito.`,
+        "",
+        "Indicazioni specifiche per questo livello:",
+        dettagliLivello,
+        "",
+        "Regole generali:",
+        "- Mantieni la storia, i personaggi e le informazioni IDENTICI.",
+        "- NON cambiare gli eventi narrativi né l'ordine delle scene.",
+        "- NON aggiungere nuove scene, personaggi o informazioni.",
+        "- Non trasformare il testo in un riassunto.",
+        "- Rispetta il tono e il registro dell'autore.",
+      ].join("\n");
 
       if (evaluationSnippet) {
         baseSystemMessage +=
@@ -955,11 +886,11 @@ NESSUNA NOTA FUORI STRUTTURA.
         let chunk = chunks[i];
 
         let chunkUserMessage = [
-     `Esegui un editing ${livello.toUpperCase()} del seguente testo, mantenendo intatti contenuti e significato.`,
-      "",
-      chunk,
-    ].join("\n");
-
+          `Esegui un editing ${livello.toUpperCase()} del seguente testo, mantenendo intatti contenuti e significato.`,
+          `Questa è la sezione ${i + 1}/${chunks.length} del manoscritto.`,
+          "",
+          chunk,
+        ].join("\n");
 
         if (chunkUserMessage.length > MAX_PROMPT_CHARS_LOCAL) {
           console.log(
@@ -981,17 +912,15 @@ NESSUNA NOTA FUORI STRUTTURA.
         });
 
         const aiChunk =
-        completionChunk.choices?.[0]?.message?.content?.trim() || "";
+          completionChunk.choices?.[0]?.message?.content?.trim() || "";
 
-      // elimina qualsiasi riga/pezzo che contenga "Sezione 2/3" ecc.
-      const cleanedChunk = aiChunk
-    .replace(/<p>\s*\**\s*Sezione\s+\d+\s*\/\s*\d+[^<]*<\/p>/gi, "")
-    .replace(/\**\s*Sezione\s+\d+\s*\/\s*\d+[^\n]*\**/gi, "")
-    .trim();
+        const fixedChunk = applyTypographicFixes(aiChunk);
 
-    const fixedChunk = applyTypographicFixes(cleanedChunk);
+        console.log(
+          `Chunk ${i + 1}/${chunks.length} editato, lunghezza:`,
+          fixedChunk.length
+        );
 
-       
         allEdited += fixedChunk + "\n\n";
       }
 
