@@ -27,3 +27,9 @@ server/.env
 
 BACKED E FRONTED.txt 
 BACKED E FRONTED.txt 
+
+server/uploads/
+server/data/evaluations.json
+server/index_backup_*.js
+src/AppBackup_*.jsx
+
