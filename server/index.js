@@ -847,7 +847,11 @@ NESSUNA NOTA FUORI STRUTTURA.
     }
         // ✅ EDITING+CORREZIONE BOZZE (DEFAULT FERMENTO) - UNICO
     if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
-           systemMessage = fs.readFileSync(path.join(process.cwd(), "server", "prompts", "editing-fermento-A.txt"), "utf8");
+           systemMessage = fs.readFileSync(
+  path.join(process.cwd(), "prompts", "editing-fermento-A.txt"),
+  "utf8"
+);
+
        /*
  "Sei un editor e correttore di bozze professionista per una casa editrice italiana (Fermento).",
         "",
