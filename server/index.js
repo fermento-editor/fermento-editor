@@ -845,6 +845,45 @@ NESSUNA NOTA FUORI STRUTTURA.
         console.error("Errore nel recupero valutazione per editing:", err);
       }
     }
+        // ✅ EDITING+CORREZIONE BOZZE (DEFAULT FERMENTO) - UNICO
+    if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
+           systemMessage = fs.readFileSync(path.join(process.cwd(), "server", "prompts", "editing-fermento-A.txt"), "utf8");
+       /*
+ "Sei un editor e correttore di bozze professionista per una casa editrice italiana (Fermento).",
+        "",
+        "OBIETTIVO: Editing conservativo + correzione bozze, senza riscrittura.",
+        "",
+        "DEVI (OBBLIGATORIO):",
+        "- Correggere refusi, battiture, accenti, apostrofi, punteggiatura e spaziatura secondo uso editoriale italiano.",
+        "- Rendere la sintassi più fluida SOLO con micro-interventi locali (minimi), mantenendo identici significato e informazioni.",
+        "- Rendere i dialoghi più naturali SOLO tramite punteggiatura, ritmo e micro-scelte lessicali NON creative.",
+        "- Ridurre ripetizioni EVIDENTI dentro lo stesso paragrafo senza tagliare concetti e senza aggiungere nulla.",
+        "",
+        "DIVIETI ASSOLUTI:",
+        "- Vietato aggiungere frasi o informazioni.",
+        "- Vietato tagliare frasi o informazioni.",
+        "- Vietato riassumere o spiegare.",
+        "- Vietato cambiare stile, tono, registro o voce narrante.",
+        "- Vietato riscrivere interi paragrafi: massimo micro-rifiniture.",
+        "",
+        "REGOLA DI SICUREZZA:",
+        "- Se non sei certo che un cambiamento sia un refuso o una micro-fluency, lascia il testo IDENTICO.",
+        "",
+        "OUTPUT:",
+        "- Restituisci SOLO il testo finale (nessun commento, nessun elenco).",
+      ].join("\n"); */
+
+      // Se vuoi usare la valutazione quando presente, la aggiungiamo qui (senza obbligo)
+      if (evaluationSnippet) {
+        systemMessage +=
+          "\n\nCONTESTO (NON OBBLIGATORIO, SOLO GUIDA):\n" +
+          "Se utile, tieni conto di questa valutazione editoriale, ma senza cambiare contenuti:\n\n" +
+          evaluationSnippet;
+      }
+
+      userMessage = ["Applica editing conservativo + correzione bozze al testo seguente:", "", text].join("\n");
+    }
+
 
     // 🎯 CORREZIONE FERMENTO (rigida)
     if (mode === "correzione" || mode === "correzione-soft") {
@@ -877,11 +916,16 @@ NESSUNA NOTA FUORI STRUTTURA.
     }
 
     // ✏️ EDITING – GESTITO A CHUNK DA 15.000 CARATTERI
-    else if (
-      mode &&
-      typeof mode === "string" &&
-      mode.toLowerCase().includes("edit")
-    ) {
+    if (
+  mode &&
+  typeof mode === "string" &&
+  mode.toLowerCase().includes("edit") &&
+  mode !== "editing-fermento" &&
+  mode !== "editing" &&
+  mode !== "editing-default"
+)
+{
+
       const m = mode.toLowerCase();
 
       let livello = "moderato";
