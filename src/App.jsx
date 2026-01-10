@@ -220,11 +220,11 @@ if (data.type === "docx") {
       };
 
             // se stiamo facendo editing/correzione, passiamo anche la valutazione
-      const isEditingMode =
-        mode === "correzione-soft" ||
-        mode === "editing-leggero" ||
-        mode === "editing-moderato" ||
-        mode === "editing-profondo";
+          const isEditingMode =
+        mode === "editing-fermento" ||
+        mode === "editing" ||
+        mode === "editing-default";
+
 
       if (isEditingMode) {
         body.useEvaluationForEditing = useEvalForEditing;
@@ -495,6 +495,7 @@ async function handleExportEvaluationDocx() {
       </header>
 
       <main className="layout">
+      
   {/* COLONNA SINISTRA */}
   <section className="column">
     <div className="pane-header">
@@ -516,68 +517,30 @@ async function handleExportEvaluationDocx() {
       onChange={(e) => setInputText(e.target.value)}
       placeholder="Incolla qui il testo o caricalo da file..."
     />
-{inputHtml && inputHtml.trim() && (
-  <div
-    style={{
-      marginTop: "10px",
-      padding: "10px",
-      border: "1px solid #ddd",
-      borderRadius: "8px",
-      background: "#fff",
-      maxHeight: "260px",
-      overflow: "auto",
-    }}
-  >
-    <div style={{ fontSize: "12px", fontWeight: 700, marginBottom: "6px" }}>
-      Anteprima formattata (da DOCX)
-    </div>
-    <div dangerouslySetInnerHTML={{ __html: inputHtml }} />
-  </div>
-)}
 
-
-          <div className="buttons-row">
+                    <div className="buttons-row">
             <button
-              onClick={() => callAi("correzione-soft")}
+              onClick={() => callAi("editing-fermento")}
               disabled={isAiLoading}
             >
-                   
-              {isAiLoading && lastAiMode === "correzione-soft"
-                ? "AI: correzione..."
-                : "Correzione testo"}
-            </button>
-
-            <button
-              onClick={() => callAi("editing-leggero")}
-              disabled={isAiLoading}
-            >
-              Editing leggero
-            </button>
-
-            <button
-              onClick={() => callAi("editing-moderato")}
-              disabled={isAiLoading}
-            >
-              Editing moderato
-            </button>
-
-            <button
-              onClick={() => callAi("editing-profondo")}
-              disabled={isAiLoading}
-            >
-              Editing profondo
+              {isAiLoading && lastAiMode === "editing-fermento"
+                ? "AI: editing..."
+                : "Editing + Correzione bozze"}
             </button>
 
             <button
               onClick={() => callAi("traduzione-it-en")}
               disabled={isAiLoading}
             >
-              Traduzione IT → EN
+              {isAiLoading && lastAiMode === "traduzione-it-en"
+                ? "AI: traduzione..."
+                : "Traduzione IT → EN"}
             </button>
           </div>
+
         </section>
 
-       {/* COLONNA CENTRALE */}
+ {/* COLONNA CENTRALE */}
 <section className="column">
   <div className="pane-header">
     <h2>Risultato AI</h2>
@@ -597,31 +560,6 @@ async function handleExportEvaluationDocx() {
   </div>
 </section>
 
-{/* ===========================
-    ANTEPRIMA FORMATTATA
-   =========================== */}
-{(outputHtml || inputHtml) && (
-  <section className="column">
-    <div className="pane-header">
-      <h2>Anteprima formattata</h2>
-      <span className="char-counter">
-        {outputHtml ? "da AI (outputHtml)" : "da DOCX (inputHtml)"}
-      </span>
-    </div>
-
-    <div
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: "8px",
-        padding: "10px",
-        background: "#fff",
-        maxHeight: "320px",
-        overflow: "auto",
-      }}
-      dangerouslySetInnerHTML={{ __html: outputHtml || inputHtml }}
-    />
-  </section>
-)}
 
 
         {/* COLONNA DESTRA */}
@@ -649,7 +587,7 @@ async function handleExportEvaluationDocx() {
           >
             Valutazione manoscritto
           </button>
-
+        
           {/* ✅ SCELTA: EDITING BASATO O NO SULLA VALUTAZIONE */}
           <div
             className="buttons-row"
