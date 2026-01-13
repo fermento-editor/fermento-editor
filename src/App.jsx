@@ -37,6 +37,9 @@ function App() {
   // ✅ nuovo: preferenza se l’editing deve usare la valutazione
   const [useEvalForEditing, setUseEvalForEditing] = useState(false);
 
+  // ✅ nuovo: profilo grafico (UI → prompt)
+ const [graphicProfile, setGraphicProfile] = useState("Narrativa contemporanea");
+
     function stripHtmlToText(html) {
     if (!html) return "";
     return html
@@ -579,6 +582,21 @@ async function handleExportEvaluationDocx() {
               onChange={(e) => setProjectAuthor(e.target.value)}
               placeholder="Autore progetto"
             />
+                        {/* ✅ nuovo: profilo grafico */}
+            <div style={{ marginTop: "8px", width: "100%" }}>
+              <label style={{ fontSize: "12px", fontWeight: 700, display: "block", marginBottom: "4px" }}>
+                Profilo grafico
+              </label>
+              <select
+                value={graphicProfile}
+                onChange={(e) => setGraphicProfile(e.target.value)}
+                style={{ width: "100%", padding: "6px", borderRadius: "6px" }}
+              >
+                <option value="Narrativa italiana classica">Narrativa italiana classica</option>
+                <option value="Narrativa contemporanea">Narrativa contemporanea</option>
+                <option value="Saggistica / Non-fiction">Saggistica / Non-fiction</option>
+              </select>
+            </div>
           </div>
 
           <button
