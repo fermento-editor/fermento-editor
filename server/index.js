@@ -241,6 +241,7 @@ app.post("/api/upload", upload.single("file"), handleUpload);
 // ===============================
 
 app.post("/api/export-docx", async (req, res) => {
+
   try {
     const { html } = req.body;
 
@@ -845,48 +846,77 @@ NESSUNA NOTA FUORI STRUTTURA.
         console.error("Errore nel recupero valutazione per editing:", err);
       }
     }
-        // ✅ EDITING+CORREZIONE BOZZE (DEFAULT FERMENTO) - UNICO
-    if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
-           systemMessage = fs.readFileSync(
-  path.join(process.cwd(), "prompts", "editing-fermento-A.txt"),
-  "utf8"
-);
+    // ✅ EDITING+CORREZIONE BOZZE (DEFAULT FERMENTO) - UNICO
+// 🔥 ORA PASSA DAL CHUNKING (editing deciso) usando editing-fermento-B.txt
+if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
+ const graphicProfile = (req.body && req.body.graphicProfile) ? req.body.graphicProfile : "Narrativa contemporanea";
 
-       /*
- "Sei un editor e correttore di bozze professionista per una casa editrice italiana (Fermento).",
-        "",
-        "OBIETTIVO: Editing conservativo + correzione bozze, senza riscrittura.",
-        "",
-        "DEVI (OBBLIGATORIO):",
-        "- Correggere refusi, battiture, accenti, apostrofi, punteggiatura e spaziatura secondo uso editoriale italiano.",
-        "- Rendere la sintassi più fluida SOLO con micro-interventi locali (minimi), mantenendo identici significato e informazioni.",
-        "- Rendere i dialoghi più naturali SOLO tramite punteggiatura, ritmo e micro-scelte lessicali NON creative.",
-        "- Ridurre ripetizioni EVIDENTI dentro lo stesso paragrafo senza tagliare concetti e senza aggiungere nulla.",
-        "",
-        "DIVIETI ASSOLUTI:",
-        "- Vietato aggiungere frasi o informazioni.",
-        "- Vietato tagliare frasi o informazioni.",
-        "- Vietato riassumere o spiegare.",
-        "- Vietato cambiare stile, tono, registro o voce narrante.",
-        "- Vietato riscrivere interi paragrafi: massimo micro-rifiniture.",
-        "",
-        "REGOLA DI SICUREZZA:",
-        "- Se non sei certo che un cambiamento sia un refuso o una micro-fluency, lascia il testo IDENTICO.",
-        "",
-        "OUTPUT:",
-        "- Restituisci SOLO il testo finale (nessun commento, nessun elenco).",
-      ].join("\n"); */
+  const baseSystemMessage = fs.readFileSync(
+    path.join(process.cwd(), "prompts", "editing-fermento-B.txt"),
+    "utf8"
+  );
 
-      // Se vuoi usare la valutazione quando presente, la aggiungiamo qui (senza obbligo)
-      if (evaluationSnippet) {
-        systemMessage +=
-          "\n\nCONTESTO (NON OBBLIGATORIO, SOLO GUIDA):\n" +
-          "Se utile, tieni conto di questa valutazione editoriale, ma senza cambiare contenuti:\n\n" +
-          evaluationSnippet;
-      }
+  let systemForChunk = baseSystemMessage;
 
-      userMessage = ["Applica editing conservativo + correzione bozze al testo seguente:", "", text].join("\n");
+  systemForChunk += `\n\nPROFILO GRAFICO SELEZIONATO (VINCOLANTE): ${graphicProfile}\n`;
+  systemForChunk += "Regola assoluta: NON convertire dialoghi, virgolette, trattini o segni tipografici. Mantieni la grafica originale salvo errori evidenti.\n";
+
+
+  // Se c'è valutazione, la rendiamo vincolante anche qui
+  if (evaluationSnippet) {
+    systemForChunk +=
+      "\n\nISTRUZIONI AGGIUNTIVE (OBBLIGATORIE): devi applicare in modo prioritario la seguente VALUTAZIONE EDITORIALE (estratto).\n\n" +
+      evaluationSnippet;
+  }
+
+  const chunks = chunkText(text, 15000);
+  console.log("EDITING a chunk, mode:", mode, "numero chunks:", chunks.length);
+
+  let allEdited = "";
+  const MAX_PROMPT_CHARS_LOCAL = 60000;
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+
+    let chunkUserMessage = [
+     "Esegui un EDITING + CORREZIONE BOZZE: migliora chiarezza e scorrevolezza SENZA tagliare, condensare o riscrivere in modo creativo.",
+      "ma NON cambiare fatti, eventi, personaggi, luoghi né l’ordine delle scene.",
+      "Restituisci SOLO HTML NUDO usando SOLO <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
+      "",
+      chunk,
+    ].join("\n");
+
+    if (chunkUserMessage.length > MAX_PROMPT_CHARS_LOCAL) {
+      console.log("chunkUserMessage troppo lungo, lo taglio da", chunkUserMessage.length, "a", MAX_PROMPT_CHARS_LOCAL);
+      chunkUserMessage = chunkUserMessage.slice(0, MAX_PROMPT_CHARS_LOCAL);
     }
+
+    const completionChunk = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        { role: "system", content: systemForChunk },
+        { role: "user", content: chunkUserMessage },
+      ],
+    });
+
+    const aiChunk = completionChunk.choices?.[0]?.message?.content?.trim() || "";
+
+    const cleanedChunk = aiChunk
+      .replace(/<p>\s*\**\s*Sezione\s+\d+\s*\/\s*\d+[^<]*<\/p>/gi, "")
+      .replace(/\**\s*Sezione\s+\d+\s*\/\s*\d+[^\n]*\**/gi, "")
+      .trim();
+
+    const fixedChunk = applyTypographicFixes(cleanedChunk);
+
+    allEdited += fixedChunk + "\n\n";
+  }
+
+  return res.json({
+    success: true,
+    result: allEdited.trim(),
+  });
+}
 
 
     // 🎯 CORREZIONE FERMENTO (rigida)
@@ -924,10 +954,10 @@ NESSUNA NOTA FUORI STRUTTURA.
   mode &&
   typeof mode === "string" &&
   mode.toLowerCase().includes("edit") &&
-  mode !== "editing-fermento" &&
   mode !== "editing" &&
   mode !== "editing-default"
-)
+ )
+
 {
 
       const m = mode.toLowerCase();
@@ -959,26 +989,10 @@ NESSUNA NOTA FUORI STRUTTURA.
         ].join("\n");
       }
 
-      let baseSystemMessage = [
-  "Sei un editor professionista per una casa editrice italiana.",
-  `Devi eseguire un editing ${livello.toUpperCase()} sul testo fornito.`,
-  "",
-  "Indicazioni specifiche per questo livello:",
-  dettagliLivello,
-  "",
-  "Regole generali:",
-  "- Mantieni la storia, i personaggi e le informazioni IDENTICI.",
-  "- NON cambiare gli eventi narrativi né l'ordine delle scene.",
-  "- NON aggiungere nuove scene, personaggi o informazioni.",
-  "- Non trasformare il testo in un riassunto.",
-  "- Rispetta il tono e il registro dell'autore.",
-  "",
-  "REGOLA DI OUTPUT (OBBLIGATORIA):",
-  "- Devi restituire SOLO HTML NUDO (nessun markdown, nessun **, nessun titolo tipo 'Sezione 1/3').",
-  "- Usa SOLO questi tag: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
-  "- Mantieni i paragrafi: ogni paragrafo deve essere un <p>...</p>.",
-  "- NON inserire mai la parola 'Sezione' o frazioni tipo 1/3 nel testo restituito.",
-  ].join("\n");
+    let baseSystemMessage = fs.readFileSync(
+  path.join(process.cwd(), "prompts", "editing-fermento-B.txt"),
+  "utf8"
+);
 
       if (evaluationSnippet) {
         baseSystemMessage +=
@@ -1002,12 +1016,12 @@ NESSUNA NOTA FUORI STRUTTURA.
       for (let i = 0; i < chunks.length; i++) {
         let chunk = chunks[i];
 
-        let chunkUserMessage = [
-     `Esegui un editing ${livello.toUpperCase()} del seguente testo, mantenendo intatti contenuti e significato.`,
-      "",
-      chunk,
-    ].join("\n");
-
+      let chunkUserMessage = [
+  "Esegui un editing " + livello.toUpperCase() + " del seguente testo. " +
+    "Puoi tagliare e condensare ridondanze e verbosità, ma NON cambiare i fatti, gli eventi, i personaggi, i luoghi né la sequenza della storia.",
+  "",
+  chunk,
+].join("\n");
 
         if (chunkUserMessage.length > MAX_PROMPT_CHARS_LOCAL) {
           console.log(
@@ -1107,5 +1121,7 @@ NESSUNA NOTA FUORI STRUTTURA.
 // AVVIO SERVER
 // ===============================
 app.listen(PORT, () => {
-  console.log(`Fermento AI backend in ascolto su http://localhost:${PORT}`);
+  console.log("### FIRMA BACKEND FERMENTO: INDEX.JS MODIFICATO OGGI ###");
+console.log(`Fermento AI backend in ascolto su http://localhost:${PORT}`);
+
 });
