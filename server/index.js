@@ -949,16 +949,15 @@ if (mode === "editing-fermento" || mode === "editing" || mode === "editing-defau
       userMessage = "Traduci in inglese:\n\n" + text;
     }
 
-    // ✏️ EDITING – GESTITO A CHUNK DA 15.000 CARATTERI
+       // ✏️ EDITING – GESTITO A CHUNK DA 15.000 CARATTERI
     if (
-  mode &&
-  typeof mode === "string" &&
-  mode.toLowerCase().includes("edit") &&
-  mode !== "editing" &&
-  mode !== "editing-default"
- )
-
-{
+      mode &&
+      typeof mode === "string" &&
+      mode.toLowerCase().includes("edit") &&
+      mode !== "editing" &&
+      mode !== "editing-default" &&
+      mode !== "editing-fermento"
+    ) {
 
       const m = mode.toLowerCase();
 
