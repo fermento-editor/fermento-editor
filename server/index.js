@@ -520,16 +520,18 @@ app.post("/api/ai", async (req, res) => {
   console.log(">>> /api/ai chiamata, mode:", req.body?.mode);
 
   try {
-    const {
-      text = "",
-      mode,
-      projectTitle = "",
-      projectAuthor = "",
-      projectId = null, // per collegare valutazioni e editing (legacy)
-            useEvaluationForEditing = false,
-      currentEvaluation = "",
-      graphicProfile = "Narrativa contemporanea",
-    } = req.body || {};
+   const {
+  text = "",
+  mode,
+  projectTitle = "",
+  projectAuthor = "",
+  projectId = null, // per collegare valutazioni e editing (legacy)
+  useEvaluation = false, // ✅ vecchio flag (NON toglierlo: lo usi più sotto)
+  useEvaluationForEditing = false,
+  currentEvaluation = "",
+  graphicProfile = "Narrativa contemporanea",
+} = req.body || {};
+
 
 
     let systemMessage = "";
