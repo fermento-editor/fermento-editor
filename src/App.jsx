@@ -220,6 +220,8 @@ if (data.type === "docx") {
         text: inputText,
         projectTitle,
         projectAuthor,
+        graphicProfile,
+
       };
 
             // se stiamo facendo editing/correzione, passiamo anche la valutazione

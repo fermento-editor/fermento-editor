@@ -117,8 +117,7 @@ function applyTypographicFixes(text) {
   if (!text) return text;
   let t = text;
 
-  t = t.replace(/…/g, "...");
-  t = t.replace(/\.{2,}/g, "...");
+
   t = t.replace(/\s+([.,;:!?])/g, "$1");
   t = t.replace(/(["«“])\s+/g, "$1");
   t = t.replace(/\s+(["»”'])/g, "$1");
@@ -527,11 +526,11 @@ app.post("/api/ai", async (req, res) => {
       projectTitle = "",
       projectAuthor = "",
       projectId = null, // per collegare valutazioni e editing (legacy)
-      useEvaluation = false, // vecchio flag
-      // ✅ nuovi campi dal frontend
-      useEvaluationForEditing = false,
+            useEvaluationForEditing = false,
       currentEvaluation = "",
+      graphicProfile = "Narrativa contemporanea",
     } = req.body || {};
+
 
     let systemMessage = "";
     let userMessage = "";
@@ -849,7 +848,46 @@ NESSUNA NOTA FUORI STRUTTURA.
     // ✅ EDITING+CORREZIONE BOZZE (DEFAULT FERMENTO) - UNICO
 // 🔥 ORA PASSA DAL CHUNKING (editing deciso) usando editing-fermento-B.txt
 if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
- const graphicProfile = (req.body && req.body.graphicProfile) ? req.body.graphicProfile : "Narrativa contemporanea";
+   // ✅ profilo grafico arrivato dalla UI (se manca, fallback)
+  const selectedGraphicProfile = graphicProfile || "Narrativa contemporanea";
+
+  // ✅ carica regole profilo da JSON (server/rules/graphic-profiles.json)
+  let graphicRulesBlock = "";
+  try {
+    const gpPath = path.join(process.cwd(), "rules", "graphic-profiles.json");
+    const gpRaw = fs.readFileSync(gpPath, "utf8");
+    const gpData = JSON.parse(gpRaw);
+
+    const profiles = Array.isArray(gpData?.profiles) ? gpData.profiles : [];
+    const found =
+      profiles.find((p) => p.label === selectedGraphicProfile) ||
+      profiles.find((p) => p.id === gpData?.defaultProfileId) ||
+      profiles[0];
+
+    const hardList = Array.isArray(found?.rules?.hardConstraintsText)
+      ? found.rules.hardConstraintsText
+      : [];
+
+    graphicRulesBlock = [
+      `PROFILO GRAFICO SELEZIONATO (VINCOLANTE): ${found?.label || selectedGraphicProfile}`,
+      "",
+      "VINCOLI (obbligatori):",
+      ...(hardList.length ? hardList.map((s) => `– ${s}`) : ["– Il profilo grafico è vincolante."]),
+      "",
+      "REGOLE TIPOGRAFICHE (non negoziabili):",
+      "– NON convertire segni di dialogo (trattini/virgolette/caporali).",
+      "– NON convertire virgolette (\" “ ” « ») da una forma all’altra.",
+      "– NON normalizzare puntini di sospensione (... ↔ …).",
+      "– NON normalizzare trattini (- ↔ – ↔ —).",
+      "– NON cambiare apostrofi o accenti tipografici.",
+      "– NON alterare spaziature, a capo, paragrafi."
+    ].join("\n");
+  } catch (e) {
+    graphicRulesBlock = [
+      `PROFILO GRAFICO SELEZIONATO (VINCOLANTE): ${selectedGraphicProfile}`,
+      "Regola assoluta: NON convertire dialoghi, virgolette, trattini o segni tipografici. Mantieni la grafica originale salvo errori evidenti."
+    ].join("\n");
+  }
 
   const baseSystemMessage = fs.readFileSync(
     path.join(process.cwd(), "prompts", "editing-fermento-B.txt"),
@@ -858,8 +896,9 @@ if (mode === "editing-fermento" || mode === "editing" || mode === "editing-defau
 
   let systemForChunk = baseSystemMessage;
 
-  systemForChunk += `\n\nPROFILO GRAFICO SELEZIONATO (VINCOLANTE): ${graphicProfile}\n`;
-  systemForChunk += "Regola assoluta: NON convertire dialoghi, virgolette, trattini o segni tipografici. Mantieni la grafica originale salvo errori evidenti.\n";
+  // ✅ inietta regole profilo nel prompt
+  systemForChunk += "\n\n" + graphicRulesBlock + "\n";
+
 
 
   // Se c'è valutazione, la rendiamo vincolante anche qui

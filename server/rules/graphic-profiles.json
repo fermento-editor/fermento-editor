@@ -1,0 +1,182 @@
+{
+  "version": "1.0",
+  "defaultProfileId": "narrativa_contemporanea",
+  "profiles": [
+    {
+      "id": "narrativa_italiana_classica",
+      "label": "Narrativa italiana classica",
+      "notes": "Profilo conservativo. Coerenza grafica rigida, niente normalizzazioni automatiche non richieste.",
+      "rules": {
+        "dialogue": {
+          "preferredStyle": "em_dash",
+          "emDashChar": "—",
+          "oneUtterancePerParagraph": true,
+          "convertDialogueMarkers": false,
+          "forbidGuillemetsAsDialogue": true
+        },
+        "quotes": {
+          "preferredOuterQuotes": "guillemets",
+          "guillemets": { "open": "«", "close": "»" },
+          "curlyQuotes": { "open": "“", "close": "”" },
+          "straightQuotes": { "open": "\"", "close": "\"" },
+          "convertQuotes": false,
+          "useGuillemetsOnlyForCitations": true
+        },
+        "typography": {
+          "preserveItalics": true,
+          "preserveBold": true,
+          "forbidAddingBold": true,
+          "forbidAddingItalics": true
+        },
+        "punctuation": {
+          "ellipsis": {
+            "keepAsOriginal": true,
+            "forbidNormalizationToSingleGlyph": true,
+            "singleGlyph": "…",
+            "tripleDots": "..."
+          },
+          "dashes": {
+            "keepHyphenMinus": true,
+            "forbidHyphenToEnDash": true,
+            "forbidHyphenToEmDash": false
+          },
+          "apostrophesAndAccents": {
+            "keepAsOriginal": true,
+            "forbidSmartApostrophe": true,
+            "smartApostrophe": "’",
+            "asciiApostrophe": "'"
+          }
+        },
+        "spacingAndLayout": {
+          "preserveLineBreaks": true,
+          "preserveBlankLines": true,
+          "preserveLeadingSpaces": true,
+          "forceLineBreakAfterDialogue": true,
+          "forbidAutoReflow": true
+        },
+        "hardConstraintsText": [
+          "Il profilo grafico è vincolante.",
+          "È vietato introdurre, sostituire o normalizzare segni tipografici (dialoghi, virgolette, puntini di sospensione, apostrofi) se non espressamente previsto.",
+          "Correggi refusi e punteggiatura SOLO quando l'errore è evidente, senza cambiare convenzioni grafiche."
+        ]
+      }
+    },
+    {
+      "id": "narrativa_contemporanea",
+      "label": "Narrativa contemporanea",
+      "notes": "Profilo moderno ma controllato. Mantiene la forma originale; privilegia ritmo e leggibilità senza ‘italianizzare’ forzatamente.",
+      "rules": {
+        "dialogue": {
+          "preferredStyle": "curly_quotes",
+          "allowDialogueInlineInParagraph": true,
+          "convertDialogueMarkers": false,
+          "forbidGuillemetsAsDialogue": true
+        },
+        "quotes": {
+          "preferredOuterQuotes": "curly",
+          "guillemets": { "open": "«", "close": "»" },
+          "curlyQuotes": { "open": "“", "close": "”" },
+          "straightQuotes": { "open": "\"", "close": "\"" },
+          "convertQuotes": false,
+          "forbidGuillemets": true
+        },
+        "typography": {
+          "preserveItalics": true,
+          "preserveBold": true,
+          "forbidAddingBold": true,
+          "forbidAddingItalics": true
+        },
+        "punctuation": {
+          "ellipsis": {
+            "keepAsOriginal": true,
+            "allowSingleGlyphIfAlreadyPresent": true,
+            "singleGlyph": "…",
+            "tripleDots": "..."
+          },
+          "dashes": {
+            "keepHyphenMinus": true,
+            "keepEnDash": true,
+            "keepEmDash": true,
+            "convertDashes": false
+          },
+          "apostrophesAndAccents": {
+            "keepAsOriginal": true,
+            "forbidSmartApostrophe": false,
+            "smartApostrophe": "’",
+            "asciiApostrophe": "'"
+          }
+        },
+        "spacingAndLayout": {
+          "preserveLineBreaks": true,
+          "preserveBlankLines": true,
+          "preserveLeadingSpaces": true,
+          "forceLineBreakAfterDialogue": false,
+          "forbidAutoReflow": true
+        },
+        "hardConstraintsText": [
+          "Il profilo grafico è vincolante.",
+          "Mantieni i segni grafici già presenti (dialoghi, virgolette, trattini, puntini). Non convertirli.",
+          "Intervieni sulla punteggiatura solo per errori evidenti, senza cambiare lo stile tipografico."
+        ]
+      }
+    },
+    {
+      "id": "saggistica_nonfiction",
+      "label": "Saggistica / Non-fiction",
+      "notes": "Profilo funzionale. Coerenza, chiarezza, niente abbellimenti; conserva struttura e formattazioni esistenti.",
+      "rules": {
+        "dialogue": {
+          "preferredStyle": "curly_quotes_or_straight",
+          "convertDialogueMarkers": false,
+          "noStructuralEditsToDialogue": true
+        },
+        "quotes": {
+          "preferredOuterQuotes": "keep_original",
+          "guillemets": { "open": "«", "close": "»" },
+          "curlyQuotes": { "open": "“", "close": "”" },
+          "straightQuotes": { "open": "\"", "close": "\"" },
+          "convertQuotes": false
+        },
+        "typography": {
+          "preserveItalics": true,
+          "preserveBold": true,
+          "forbidAddingBold": true,
+          "forbidAddingItalics": true
+        },
+        "punctuation": {
+          "ellipsis": {
+            "keepAsOriginal": true,
+            "forbidNormalizationToSingleGlyph": true,
+            "singleGlyph": "…",
+            "tripleDots": "..."
+          },
+          "dashes": {
+            "convertDashes": false,
+            "keepHyphenMinus": true,
+            "keepEnDash": true,
+            "keepEmDash": true
+          },
+          "apostrophesAndAccents": {
+            "keepAsOriginal": true,
+            "forbidSmartApostrophe": false,
+            "smartApostrophe": "’",
+            "asciiApostrophe": "'"
+          }
+        },
+        "spacingAndLayout": {
+          "preserveLineBreaks": true,
+          "preserveBlankLines": true,
+          "preserveLeadingSpaces": true,
+          "forbidAutoReflow": true,
+          "forbidMergingParagraphs": true,
+          "forbidSplittingParagraphs": true
+        },
+        "hardConstraintsText": [
+          "Il profilo grafico è vincolante.",
+          "Nessuna normalizzazione tipografica automatica (virgolette, trattini, puntini).",
+          "Non fondere né spezzare paragrafi; preserva struttura, liste e rientri."
+        ]
+      }
+    }
+  ]
+}
