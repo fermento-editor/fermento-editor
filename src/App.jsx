@@ -590,13 +590,14 @@ async function handleExportEvaluationDocx() {
                 Profilo grafico
               </label>
               <select
-                value={graphicProfile}
-                onChange={(e) => setGraphicProfile(e.target.value)}
-                style={{ width: "100%", padding: "6px", borderRadius: "6px" }}
+            value={graphicProfile}
+           onChange={(e) => setGraphicProfile(e.target.value)}
+           disabled
+           style={{ width: "100%", padding: "6px", borderRadius: "6px" }}
+>
+
               >
-                <option value="Narrativa italiana classica">Narrativa italiana classica</option>
                 <option value="Narrativa contemporanea">Narrativa contemporanea</option>
-                <option value="Saggistica / Non-fiction">Saggistica / Non-fiction</option>
               </select>
             </div>
           </div>

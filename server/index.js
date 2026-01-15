@@ -851,7 +851,8 @@ NESSUNA NOTA FUORI STRUTTURA.
 // 🔥 ORA PASSA DAL CHUNKING (editing deciso) usando editing-fermento-B.txt
 if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
    // ✅ profilo grafico arrivato dalla UI (se manca, fallback)
-  const selectedGraphicProfile = graphicProfile || "Narrativa contemporanea";
+  const selectedGraphicProfile = "Narrativa contemporanea";
+
 
   // ✅ carica regole profilo da JSON (server/rules/graphic-profiles.json)
   let graphicRulesBlock = "";
@@ -949,8 +950,16 @@ if (mode === "editing-fermento" || mode === "editing" || mode === "editing-defau
       .trim();
 
     const fixedChunk = applyTypographicFixes(cleanedChunk);
+    const fixedChunk2 = fixedChunk
+  // "-Ciao" -> "- Ciao" (solo inizio riga / dopo a capo)
+  .replace(/(^|\n)-(?=\S)/g, "$1- ")
+  // "…-" "?-" "!-" ".-" -> "… -" ecc.
+  .replace(/([.!?…])-\s*/g, "$1 - ")
+  // pulizia doppi spazi
+  .replace(/ -  /g, " - ");
 
-    allEdited += fixedChunk + "\n\n";
+allEdited += fixedChunk2 + "\n\n";
+
   }
 
   return res.json({
