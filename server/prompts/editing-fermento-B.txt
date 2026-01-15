@@ -13,6 +13,11 @@ Regole grafiche (vincolanti):
 – NON cambiare apostrofi o accenti tipografici.
 – NON alterare spaziature, a capo o paragrafi.
 
+– ECCEZIONE CONSENTITA (SOLO INIZIO PARAGRAFO/RIGA): se un dialogo inizia con "-" senza spazio, inserisci UNO spazio: "-Ciao" → "- Ciao".
+– Applica questa eccezione SOLO se il trattino è il primo carattere del paragrafo (o subito dopo <br>); non toccare trattini interni o usati come inciso.
+
+
+
 È CONSENTITO ESCLUSIVAMENTE:
 – correggere refusi evidenti
 – correggere errori grammaticali certi
@@ -49,5 +54,3 @@ OUTPUT (OBBLIGATORIO):
 - Usa SOLO questi tag: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.
 - Ogni paragrafo deve essere un <p>...</p>.
 - Nessun commento, nessuna nota, nessun elenco di spiegazioni.
-
-
