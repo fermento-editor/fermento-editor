@@ -14,3 +14,5 @@ ANTI-COPIA (OBBLIGATORIO)
   • sostituire il trattino di chiusura della stessa battuta con il caporale di chiusura »
   • NON lasciare trattini di dialogo nel testo finale
   • NON usare virgolette inglesi o doppie
+  • NON usare virgolette inglesi o doppie
+  • NON convertire virgolette già presenti (") o (“ ”): i caporali si usano SOLO come sostituzione dei trattini di dialogo
