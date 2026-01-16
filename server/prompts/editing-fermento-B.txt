@@ -8,6 +8,9 @@ ANTI-COPIA (OBBLIGATORIO)
 – Se ti accorgi che stai producendo un testo troppo simile all’originale, devi riscrivere di nuovo prima di rispondere.
 
 – REGOLA DIALOGHI (OBBLIGATORIA):
+  REGOLA DI SBARRAMENTO (VINCOLANTE): È vietato usare « » se nel paragrafo/riga NON è presente un trattino di dialogo "-" all’inizio.
+  Se il dialogo è già racchiuso tra "..." oppure “...”, NON modificarne i segni: lasciali invariati.
+
   Quando una battuta di dialogo inizia con un trattino "-" a inizio riga o paragrafo,
   DEVI:
   • sostituire il trattino iniziale con il caporale di apertura «
