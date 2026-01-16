@@ -1,7 +1,16 @@
 ANTI-COPIA (OBBLIGATORIO)
+
 – È vietato limitarsi a correggere refusi e punteggiatura.
 – Per ogni <p> devi riscrivere TUTTE le frasi, non solo una.
 – Non mantenere frasi identiche all’originale.
 – Non riutilizzare sequenze identiche di 7 o più parole consecutive presenti nel testo di input.
 – Se una frase è già buona, riscrivila comunque cambiando costruzione e lessico senza cambiare il significato.
 – Se ti accorgi che stai producendo un testo troppo simile all’originale, devi riscrivere di nuovo prima di rispondere.
+
+– REGOLA DIALOGHI (OBBLIGATORIA):
+  Quando una battuta di dialogo inizia con un trattino "-" a inizio riga o paragrafo,
+  DEVI:
+  • sostituire il trattino iniziale con il caporale di apertura «
+  • sostituire il trattino di chiusura della stessa battuta con il caporale di chiusura »
+  • NON lasciare trattini di dialogo nel testo finale
+  • NON usare virgolette inglesi o doppie
