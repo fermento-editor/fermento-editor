@@ -6,15 +6,3 @@ ANTI-COPIA (OBBLIGATORIO)
 – Non riutilizzare sequenze identiche di 7 o più parole consecutive presenti nel testo di input.
 – Se una frase è già buona, riscrivila comunque cambiando costruzione e lessico senza cambiare il significato.
 – Se ti accorgi che stai producendo un testo troppo simile all’originale, devi riscrivere di nuovo prima di rispondere.
-
-– REGOLA DIALOGHI (OBBLIGATORIA):
-  REGOLA DI SBARRAMENTO (VINCOLANTE): È vietato usare « » se nel paragrafo/riga NON è presente un trattino di dialogo "-" all’inizio.
-  Se il dialogo è già racchiuso tra "..." oppure “...”, NON modificarne i segni: lasciali invariati.
-
-  Quando una battuta di dialogo inizia con un trattino "-" a inizio riga o paragrafo,
-  DEVI:
-  • sostituire il trattino iniziale con il caporale di apertura «
-  • sostituire il trattino di chiusura della stessa battuta con il caporale di chiusura »
-  • NON lasciare trattini di dialogo nel testo finale
-  • NON introdurre virgolette inglesi o doppie COME SOSTITUTO dei trattini di dialogo
-  • NON convertire virgolette già presenti (") o (“ ”): i caporali si usano SOLO come sostituzione dei trattini di dialogo
