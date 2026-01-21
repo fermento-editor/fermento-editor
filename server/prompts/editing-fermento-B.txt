@@ -6,3 +6,10 @@ ANTI-COPIA (OBBLIGATORIO)
 – Non riutilizzare sequenze identiche di 7 o più parole consecutive presenti nel testo di input.
 – Se una frase è già buona, riscrivila comunque cambiando costruzione e lessico senza cambiare il significato.
 – Se ti accorgi che stai producendo un testo troppo simile all’originale, devi riscrivere di nuovo prima di rispondere.
+
+– REGOLA TITOLI (OBBLIGATORIA):
+  Le righe che indicano titoli di capitolo o sezione (es. “CAPITOLO 10”, “Capitolo X”, “Capitolo Dieci”)
+  NON devono essere eliminate né riscritte.
+  Devono essere mantenute identiche all’originale e nella stessa posizione.
+  Questa regola ha priorità sulle regole ANTI-COPIA.
+
