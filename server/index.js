@@ -147,6 +147,73 @@ function chunkText(text, chunkSize = 15000) {
   return chunks;
 }
 
+// =========================
+// DOCX HTML PARAGRAPH UTILITIES (per preservare struttura)
+// =========================
+function extractParagraphs(html) {
+  if (!html || typeof html !== "string") return [];
+  const matches = html.match(/<p\b[^>]*>[\s\S]*?<\/p>/gi);
+  return matches ? matches : [];
+}
+
+function stripTagsToText(html) {
+  if (!html) return "";
+  return String(html)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\u00a0/g, " ")
+    .trim();
+}
+
+// Split <p> con <br> in più <p> (scelta B)
+function splitParagraphOnBr(pHtml) {
+  const inner = pHtml
+    .replace(/^<p\b[^>]*>/i, "")
+    .replace(/<\/p>\s*$/i, "");
+
+  if (!/<br\s*\/?>/i.test(inner)) return [pHtml];
+
+  const parts = inner.split(/<br\s*\/?>/i);
+
+  // manteniamo anche righe vuote
+  return parts.map((part) => `<p>${part}</p>`);
+}
+
+// Regola titoli capitolo/sezione: NON mandarli all'AI
+function isChapterTitleParagraph(pHtml) {
+  const text = stripTagsToText(pHtml);
+  if (!text) return false;
+  return /^capitolo\b/i.test(text);
+}
+
+function looksLikeDocxHtml(text) {
+  return typeof text === "string" && /<p\b/i.test(text);
+}
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+// Ripulisce output AI: deve diventare ESATTAMENTE un <p>...</p>
+function normalizeAiParagraph(aiText) {
+  const s = String(aiText || "").trim();
+
+  // togli eventuali recinzioni
+  const noFences = s.replace(/```[\s\S]*?```/g, "").trim();
+
+  // prendi il primo <p>...</p>
+  const m = noFences.match(/<p\b[^>]*>[\s\S]*?<\/p>/i);
+  if (m) return m[0].trim();
+
+  // fallback: incapsula (meglio che perdere struttura)
+  return `<p>${noFences}</p>`;
+}
+
 // ===============================
 //   UPLOAD DOCX/PDF
 // ===============================
@@ -265,10 +332,7 @@ app.post("/api/export-docx", async (req, res) => {
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     );
-    res.setHeader(
-      "Content-Disposition",
-      'attachment; filename="document.docx"'
-    );
+    res.setHeader("Content-Disposition", 'attachment; filename="document.docx"');
 
     return res.end(docxBuffer);
   } catch (err) {
@@ -316,10 +380,7 @@ app.post("/api/docx/editing-preserve", upload.single("file"), async (req, res) =
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     );
-    res.setHeader(
-      "Content-Disposition",
-      'attachment; filename="OUT.docx"'
-    );
+    res.setHeader("Content-Disposition", 'attachment; filename="OUT.docx"');
 
     return res.end(docxBuffer);
   } catch (err) {
@@ -334,7 +395,6 @@ app.post("/api/docx/editing-preserve", upload.single("file"), async (req, res) =
 // ===========================
 //  API VALUTAZIONI (GET / POST / DELETE / DOCX) — MANTENUTE
 // ===========================
-
 app.get("/api/evaluations", async (req, res) => {
   try {
     const projectId = req.query.projectId || null;
@@ -511,7 +571,7 @@ app.post("/api/ai", async (req, res) => {
       projectId = null,
       useEvaluationForEditing = false,
       currentEvaluation = "",
-      // non lo tocchiamo: resta compatibile col frontend
+      // compat col frontend
       graphicProfile = "Narrativa contemporanea",
     } = req.body || {};
 
@@ -549,7 +609,7 @@ app.post("/api/ai", async (req, res) => {
         console.error("Errore nel caricamento Top 10 mercato:", err);
       }
 
-      // spezzettiamo in sezioni grandi (come facevi prima)
+      // spezzettiamo in sezioni grandi
       const chunks = chunkText(textEffective, 80000);
       console.log("VALUTAZIONE: numero chunks:", chunks.length);
 
@@ -565,7 +625,10 @@ app.post("/api/ai", async (req, res) => {
           model: "gpt-4o-mini",
           temperature: 0,
           messages: [
-            { role: "system", content: valutazionePrompt + "\n\n[FASE: ANALISI SEZIONE]\n" + sectionHeader },
+            {
+              role: "system",
+              content: valutazionePrompt + "\n\n[FASE: ANALISI SEZIONE]\n" + sectionHeader,
+            },
             { role: "user", content: chunks[i] },
           ],
         });
@@ -573,7 +636,6 @@ app.post("/api/ai", async (req, res) => {
         partialAnalyses.push(p.choices?.[0]?.message?.content?.trim() || "");
       }
 
-      // sintesi finale
       const synthesisUser =
         `DATI:\n` +
         `Titolo: ${projectTitle || "Titolo mancante"}\n` +
@@ -592,12 +654,11 @@ app.post("/api/ai", async (req, res) => {
       });
 
       const finalText =
-        final.choices?.[0]?.message?.content?.trim() ||
-        "Errore nella valutazione finale.";
+        final.choices?.[0]?.message?.content?.trim() || "Errore nella valutazione finale.";
 
       const fixedText = applyTypographicFixes(finalText);
 
-      // salviamo nell’archivio valutazioni (come prima)
+      // salviamo nell’archivio valutazioni
       const evaluations = await loadEvaluations();
       const newEval = {
         id: Date.now().toString(),
@@ -618,10 +679,10 @@ app.post("/api/ai", async (req, res) => {
     }
 
     // ==========================
-    // 2) EDITING FERMENTO (PROMPT ESTERNO) — il tuo flusso attuale
+    // 2) EDITING FERMENTO (PROMPT ESTERNO)
+    //    - SOLO DOCX: paragrafo-per-paragrafo per preservare struttura
     // ==========================
     if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
-      // prompt esterno già esistente
       let systemForChunk = readPromptFile("editing-fermento-B.txt");
       if (!systemForChunk.trim()) {
         return res.status(500).json({
@@ -630,67 +691,120 @@ app.post("/api/ai", async (req, res) => {
         });
       }
 
-      // (opzionale) valutazione fornita dal frontend per guidare editing
-      let evaluationSnippet = "";
+      // (opzionale) valutazione dal frontend per guidare editing
       if (useEvaluationForEditing && currentEvaluation && currentEvaluation.trim().length > 0) {
-        evaluationSnippet = currentEvaluation.trim().slice(0, 2000);
+        const evaluationSnippet = currentEvaluation.trim().slice(0, 2000);
         systemForChunk +=
           "\n\nISTRUZIONI AGGIUNTIVE (OBBLIGATORIE): applica prioritariamente questo estratto di VALUTAZIONE EDITORIALE:\n\n" +
           evaluationSnippet;
       }
 
-      const chunks = chunkText(textEffective, 15000);
-      console.log("EDITING a chunk, mode:", mode, "numero chunks:", chunks.length);
+          // Se non arriva HTML da DOCX, ma arriva testo/paragrafi, ricostruisco HTML minimale <p>...</p>
+      let htmlEffective = textEffective;
 
-      let allEdited = "";
-      const MAX_PROMPT_CHARS_LOCAL = 60000;
+      // se non è già HTML con <p>, provo a convertirlo da testo (paragrafi separati da righe vuote)
+      if (!looksLikeDocxHtml(htmlEffective)) {
+        const maybePlainText =
+          typeof htmlEffective === "string" &&
+          htmlEffective.trim().length > 0 &&
+          !htmlEffective.includes("<p");
 
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
+        if (maybePlainText) {
+          const paragraphs = htmlEffective
+            .split(/\r?\n\s*\r?\n|\r?\n{2,}/)
+            .map((s) => s.trim())
+            .filter(Boolean);
 
-        let chunkUserMessage = [
-          // testo minimale: le regole vere stanno nel prompt esterno
-          "Esegui l’editing secondo le regole del sistema.",
-          "Restituisci SOLO il contenuto nel formato richiesto dal prompt di sistema.",
-          "",
-          chunk,
-        ].join("\n");
+          htmlEffective = paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join("\n");
+        }
+      }
 
-        if (chunkUserMessage.length > MAX_PROMPT_CHARS_LOCAL) {
-          console.log(
-            "chunkUserMessage troppo lungo, lo taglio da",
-            chunkUserMessage.length,
-            "a",
-            MAX_PROMPT_CHARS_LOCAL
-          );
-          chunkUserMessage = chunkUserMessage.slice(0, MAX_PROMPT_CHARS_LOCAL);
+      // controllo finale: ora DEVE sembrare HTML da DOCX
+      if (!looksLikeDocxHtml(htmlEffective)) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Editing-fermento supportato solo su input DOCX (HTML con <p>...). L’input ricevuto non sembra HTML da DOCX.",
+        });
+      }
+
+      // 1) Estrai <p>
+      const originalParagraphs = extractParagraphs(htmlEffective);
+
+
+
+      // 2) Normalizza: split su <br> => più <p> (scelta B)
+      const normalizedParagraphs = [];
+      for (const p of originalParagraphs) {
+        normalizedParagraphs.push(...splitParagraphOnBr(p));
+      }
+
+      console.log(
+        "EDITING DOCX FLOW: paragraphs original:",
+        originalParagraphs.length,
+        "normalized:",
+        normalizedParagraphs.length
+      );
+
+      let out = "";
+      const MAX_P_USER = 8000;
+
+      for (let i = 0; i < normalizedParagraphs.length; i++) {
+        const pHtml = normalizedParagraphs[i];
+
+        // Mantieni paragrafi vuoti (regola A)
+        const textOnly = stripTagsToText(pHtml);
+        if (!textOnly) {
+          out += "<p></p>\n";
+          continue;
         }
 
-        const completionChunk = await openai.chat.completions.create({
+        // Mantieni titoli identici (CAPITOLO X ecc.)
+        if (isChapterTitleParagraph(pHtml)) {
+          out += `<p>${stripTagsToText(pHtml)}</p>\n`;
+          continue;
+        }
+
+        // Un paragrafo alla volta: impossibile fondere
+        let userMsg = [
+          "Devi riscrivere SOLO questo singolo paragrafo.",
+          "VINCOLI:",
+          "- Devi restituire ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
+          "- Vietato creare più paragrafi o fonderlo con altri.",
+          "- Vietato aggiungere prefazioni o commenti.",
+          "- Tag ammessi: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
+          "",
+          "PARAGRAFO INPUT:",
+          pHtml,
+        ].join("\n");
+
+        if (userMsg.length > MAX_P_USER) userMsg = userMsg.slice(0, MAX_P_USER);
+
+        const completion = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           temperature: 0,
           messages: [
             { role: "system", content: systemForChunk },
-            { role: "user", content: chunkUserMessage },
+            { role: "user", content: userMsg },
           ],
         });
 
-        const aiChunk = completionChunk.choices?.[0]?.message?.content?.trim() || "";
+        const ai = completion.choices?.[0]?.message?.content?.trim() || "";
+        const pOut = normalizeAiParagraph(ai);
 
-        const cleanedChunk = aiChunk
-          .replace(/<p>\s*\**\s*Sezione\s+\d+\s*\/\s*\d+[^<]*<\/p>/gi, "")
-          .replace(/\**\s*Sezione\s+\d+\s*\/\s*\d+[^\n]*\**/gi, "")
-          .trim();
+               const finalP = pOut;
 
-        const fixedChunk = applyTypographicFixes(cleanedChunk);
-        const afterTypography = applyTypography(fixedChunk);
-
-        allEdited += afterTypography + "\n\n";
+        out += finalP + "\n";
       }
 
       return res.json({
         success: true,
-        result: allEdited.trim(),
+        result: out.trim(),
+        meta: {
+          docxFlow: true,
+          paragraphsOriginal: originalParagraphs.length,
+          paragraphsNormalized: normalizedParagraphs.length,
+        },
       });
     }
 
@@ -726,7 +840,7 @@ app.post("/api/ai", async (req, res) => {
     }
 
     // ==========================
-    // FALLBACK (se arriva un mode sconosciuto)
+    // MODE NON SUPPORTATA
     // ==========================
     return res.status(400).json({
       success: false,
