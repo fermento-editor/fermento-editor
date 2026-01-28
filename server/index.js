@@ -47,14 +47,29 @@ const __dirname = path.dirname(__filename);
 // cartella upload
 const uploadDir = path.join(__dirname, "uploads");
 fs.mkdirSync(uploadDir, { recursive: true });
-
 const upload = multer({ dest: uploadDir });
 
-// file valutazioni
+// cartella prompts (dentro /server/prompts)
+const promptsDir = path.join(__dirname, "prompts");
+
+// file valutazioni (ARCHIVIO SERVER: lo manteniamo)
 const evaluationsPath = path.join(__dirname, "data", "evaluations.json");
 
-// file lista best seller mercato
+// (opzionale) file lista best seller mercato
 const marketTopListPath = path.join(__dirname, "data", "marketTopList.json");
+
+// ===============================
+//   UTILITY: LETTURA PROMPT ESTERNI
+// ===============================
+function readPromptFile(filename) {
+  const full = path.join(promptsDir, filename);
+  try {
+    return fs.readFileSync(full, "utf8");
+  } catch (err) {
+    console.error("Errore readPromptFile:", filename, err?.message || err);
+    return "";
+  }
+}
 
 // ===============================
 //   UTILITY: LETTURA/SCRITTURA VALUTAZIONI
@@ -84,7 +99,7 @@ async function saveEvaluations(list) {
 }
 
 // ===============================
-//   UTILITY: LISTA TOP BESTSELLER (MERCATO)
+//   UTILITY: LISTA TOP BESTSELLER (MERCATO) - opzionale
 // ===============================
 async function loadMarketTopList() {
   try {
@@ -98,23 +113,8 @@ async function loadMarketTopList() {
   }
 }
 
-async function saveMarketTopList(list) {
-  try {
-    await fsPromises.mkdir(path.dirname(marketTopListPath), {
-      recursive: true,
-    });
-    await fsPromises.writeFile(
-      marketTopListPath,
-      JSON.stringify(list, null, 2),
-      "utf8"
-    );
-  } catch (err) {
-    console.error("Errore saveMarketTopList:", err);
-  }
-}
-
 // ===============================
-//   FILTRO TIPOGRAFICO FERMENTO (NON DISTRUTTIVO)
+//   FILTRO TIPOGRAFICO (leggero)
 // ===============================
 function applyTypographicFixes(text) {
   if (!text) return text;
@@ -128,22 +128,10 @@ function applyTypographicFixes(text) {
   t = t.replace(/[!?]{2,}/g, (m) => m[m.length - 1]);
   t = t.replace(/(["»”])\s*(?![.,;:!? \n\r])/g, "$1 ");
   t = t.replace(/ {2,}/g, " ");
-  // Corregge casi come: La valutazione è" discreta → La valutazione è "discreta
   t = t.replace(/([a-zA-ZÀ-ÿ])"(?=[A-Za-zÀ-ÿ])/g, '$1 "');
 
   return t;
 }
-
-// ===============================
-//   REGOLA GRAFICA: SPAZIO DOPO TRATTINO DI DIALOGO (SOLO INIZIO RIGA/PARAGRAFO)
-//   -Ehi  -> - Ehi
-//   vale in HTML: <p>-Ehi</p>  / dopo <br>
-// ===============================
-function fixDialogueDashSpacing(html) {
-  // DISATTIVATO: le regole grafiche devono stare nei file esterni, non nel codice.
-  return html;
-}
-
 
 // =========================
 // FUNZIONE UNICA DI SPEZZETTAMENTO
@@ -186,9 +174,7 @@ async function handleUpload(req, res) {
             ? pdfModule
             : pdfModule.pdfParse;
 
-        if (!pdfParseFn) {
-          throw new Error("Modulo pdf-parse-fixed non compatibile");
-        }
+        if (!pdfParseFn) throw new Error("Modulo pdf-parse-fixed non compatibile");
 
         const result = await pdfParseFn(buffer);
         const text = result.text || "";
@@ -257,13 +243,9 @@ app.post("/api/export-docx", async (req, res) => {
       });
     }
 
-    // 1) Partiamo dall'HTML ricevuto (può essere solo <p>...</p>)
     let safeHtml = html;
-
-    // 2) Mini-pulizia NON distruttiva
     safeHtml = safeHtml.replace(/è\"/g, 'è "').replace(/\"/g, '"');
 
-    // 3) WRAP FONDAMENTALE: html-to-docx vuole una pagina HTML completa
     const wrappedHtml = `<!doctype html>
 <html>
   <head>
@@ -301,28 +283,21 @@ app.post("/api/export-docx", async (req, res) => {
 // ===============================
 //   DOCX PRESERVE (multipart) - alias operativo
 // ===============================
-app.post(
-  "/api/docx/editing-preserve",
-  upload.single("file"),
-  async (req, res) => {
-    try {
-      const html = req.body?.html;
+app.post("/api/docx/editing-preserve", upload.single("file"), async (req, res) => {
+  try {
+    const html = req.body?.html;
 
-      if (!html || typeof html !== "string") {
-        return res.status(400).json({
-          success: false,
-          error: "html mancante nel body (multipart)",
-        });
-      }
+    if (!html || typeof html !== "string") {
+      return res.status(400).json({
+        success: false,
+        error: "html mancante nel body (multipart)",
+      });
+    }
 
-      // 1) Partiamo dall'HTML ricevuto
-      let safeHtml = html;
+    let safeHtml = html;
+    safeHtml = safeHtml.replace(/è\"/g, 'è "').replace(/\"/g, '"');
 
-      // 2) Mini-pulizia NON distruttiva
-      safeHtml = safeHtml.replace(/è\"/g, 'è "').replace(/\"/g, '"');
-
-      // 3) WRAP completo per html-to-docx
-      const wrappedHtml = `<!doctype html>
+    const wrappedHtml = `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
@@ -332,36 +307,34 @@ app.post(
   </body>
 </html>`;
 
-      const docxBuffer = await htmlToDocx(wrappedHtml, null, {
-        font: "Times New Roman",
-        fontSize: 24, // 12 pt
-      });
+    const docxBuffer = await htmlToDocx(wrappedHtml, null, {
+      font: "Times New Roman",
+      fontSize: 24, // 12 pt
+    });
 
-      res.setHeader(
-        "Content-Type",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-      );
-      res.setHeader(
-        "Content-Disposition",
-        'attachment; filename="OUT.docx"'
-      );
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="OUT.docx"'
+    );
 
-      return res.end(docxBuffer);
-    } catch (err) {
-      console.error("Errore /api/docx/editing-preserve:", err);
-      return res.status(500).json({
-        success: false,
-        error: "Errore durante la conversione in DOCX (preserve)",
-      });
-    }
+    return res.end(docxBuffer);
+  } catch (err) {
+    console.error("Errore /api/docx/editing-preserve:", err);
+    return res.status(500).json({
+      success: false,
+      error: "Errore durante la conversione in DOCX (preserve)",
+    });
   }
-);
+});
 
 // ===========================
-//  API VALUTAZIONI (GET / POST / DELETE / DOCX)
+//  API VALUTAZIONI (GET / POST / DELETE / DOCX) — MANTENUTE
 // ===========================
 
-// Elenco valutazioni (con eventuale filtro per projectId)
 app.get("/api/evaluations", async (req, res) => {
   try {
     const projectId = req.query.projectId || null;
@@ -385,7 +358,6 @@ app.get("/api/evaluations", async (req, res) => {
   }
 });
 
-// GET singola valutazione
 app.get("/api/evaluations/:id", async (req, res) => {
   try {
     const list = await loadEvaluations();
@@ -411,7 +383,6 @@ app.get("/api/evaluations/:id", async (req, res) => {
   }
 });
 
-// DOWNLOAD VALUTAZIONE COME DOCX
 app.get("/api/evaluations/:id/docx", async (req, res) => {
   try {
     const list = await loadEvaluations();
@@ -426,7 +397,6 @@ app.get("/api/evaluations/:id/docx", async (req, res) => {
 
     const html = found.html || found.evaluationText || "";
 
-    // ✅ WRAP (prima qui mancava wrappedHtml e rompeva)
     const wrappedHtml = `<!doctype html>
 <html>
   <head>
@@ -464,7 +434,6 @@ app.get("/api/evaluations/:id/docx", async (req, res) => {
   }
 });
 
-// Salvataggio valutazione via POST esplicito dal frontend
 app.post("/api/evaluations", async (req, res) => {
   try {
     const {
@@ -506,7 +475,6 @@ app.post("/api/evaluations", async (req, res) => {
   }
 });
 
-// Cancellazione valutazione
 app.delete("/api/evaluations/:id", async (req, res) => {
   try {
     const id = req.params.id;
@@ -532,7 +500,7 @@ app.post("/api/ai", async (req, res) => {
   console.log(">>> /api/ai chiamata, mode:", req.body?.mode);
 
   try {
-        const {
+    const {
       text = "",
       inputText = "",
       html = "",
@@ -540,16 +508,15 @@ app.post("/api/ai", async (req, res) => {
       mode,
       projectTitle = "",
       projectAuthor = "",
-      projectId = null, // legacy
-      useEvaluation = false, // legacy
+      projectId = null,
       useEvaluationForEditing = false,
       currentEvaluation = "",
-      // ✅ default pulito
+      // non lo tocchiamo: resta compatibile col frontend
       graphicProfile = "Narrativa contemporanea",
     } = req.body || {};
 
     // ✅ TESTO EFFETTIVO: prendiamo il primo campo non vuoto
-    let textEffective = (typeof text === "string" ? text : String(text || ""));
+    let textEffective = typeof text === "string" ? text : String(text || "");
     if (!textEffective.trim()) {
       const a = typeof inputText === "string" ? inputText : String(inputText || "");
       const b = typeof html === "string" ? html : String(html || "");
@@ -559,246 +526,116 @@ app.post("/api/ai", async (req, res) => {
 
     console.log("AI textEffective length:", textEffective.length);
 
-
-    let systemMessage = "";
-    let userMessage = "";
-
-    // ===============================================
-    // VALUTAZIONE MANOSCRITTO
-    // ===============================================
+    // ==========================
+    // 1) VALUTAZIONE (PROMPT ESTERNO)
+    // ==========================
     if (mode === "valutazione" || mode === "valutazione-manoscritto") {
-      try {
-        const chunks = chunkText(textEffective, 80000);
-        console.log("VALUTAZIONE: numero chunks:", chunks.length);
-
-        const partialAnalyses = [];
-
-        for (let i = 0; i < chunks.length; i++) {
-          const promptPartial = `
-Sezione ${i + 1}/${chunks.length} del manoscritto.
-
-Analizza SOLO questa sezione in modo sintetico e strutturato:
-
-- Riassunto
-- Personaggi e loro evoluzione
-- Temi e tono
-- Punti di forza narrativi
-- Debolezze narrative
-- Note su lingua e stile (senza riscrivere il testo)
-
-Testo della sezione:
-${chunks[i]}
-`;
-
-          const p = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
-            temperature: 0,
-            messages: [{ role: "user", content: promptPartial }],
-          });
-
-          partialAnalyses.push(p.choices?.[0]?.message?.content?.trim() || "");
-        }
-
-        // Top 10 mercato
-        let topListSnippet = "";
-        try {
-          const topList = await loadMarketTopList();
-          if (Array.isArray(topList) && topList.length > 0) {
-            topListSnippet = JSON.stringify(topList).slice(0, 15000);
-          }
-        } catch (err) {
-          console.error("Errore nel caricamento Top 10 mercato:", err);
-        }
-
-        const finalPrompt = `
-Sei un editor professionista che lavora per una casa editrice italiana (Fermento).
-Devi redigere una scheda di VALUTAZIONE EDITORIALE COMPLETA, RIGOROSA E SPIETATA
-basandoti sulle seguenti analisi parziali del manoscritto:
-
-${partialAnalyses.join("\n\n--- SEZIONE ---\n\n")}
-
-REGOLE DI ATTEGGIAMENTO (IMPORTANTI):
-- La scheda è scritta per l'EDITORE, non per l'autore.
-- Devi essere ANALITICO, ONESTO e SEVERO: non edulcorare i giudizi.
-- NON rivolgerti mai direttamente all'autore.
-
-DATI DI MERCATO (Top 10 narrativa Italia – JSON semplificato):
-${topListSnippet}
-
-REGOLE FORMALI:
-- Scrivi SEMPRE in italiano.
-- RESTITUISCI SOLO HTML NUDO.
-- Usa SOLO questi tag HTML: <h2>, <h3>, <p>, <ul>, <li>, <strong>.
-
-STRUTTURA OBBLIGATORIA DELLA SCHEDA (15 PUNTI):
-<h2>Valutazione editoriale – Fermento</h2>
-<h3>1. Dati di base</h3>
-<p><strong>Titolo:</strong> ${projectTitle || "Titolo mancante"}</p>
-<p><strong>Autore:</strong> ${projectAuthor || "Autore mancante"}</p>
-<p><strong>Genere dichiarato / percepito:</strong> indica con precisione il genere e l'eventuale sottogenere.</p>
-
-<h3>2. Sintesi del manoscritto</h3>
-<p>Riassunto chiaro, neutro e completo della storia, che copra in modo equilibrato inizio, centro e finale.</p>
-
-<h3>3. Genere, tema centrale e sottotemi</h3>
-<p>Indica il genere principale e i temi dominanti. Specifica se il testo appare allineato o fuori fuoco rispetto alle aspettative.</p>
-
-<h3>4. Struttura narrativa</h3>
-<p>Analizza struttura, punto di vista, flashback, salti temporali, buchi logici. Evidenzia i problemi che incidono su tensione e leggibilità.</p>
-
-<h3>5. Trama, coerenza interna e gestione dei conflitti</h3>
-<p>Valuta solidità della trama, coerenza logica e gestione dei conflitti. Segnala svolte poco credibili o deboli.</p>
-
-<h3>6. Personaggi</h3>
-<p>Analizza tridimensionalità, evoluzione, coerenza psicologica ed empatia. Dì chiaramente se sono stereotipati o inutili.</p>
-
-<h3>7. Dialoghi</h3>
-<p>Valuta naturalezza e funzione narrativa dei dialoghi. Evidenzia dialoghi esplicativi o ridondanti.</p>
-
-<h3>8. Stile e voce narrativa</h3>
-<p>Descrivi tono, lessico, registro, ritmo. Indica se la voce è riconoscibile o anonima.</p>
-
-<h3>9. Valutazione grammaticale e ortografica</h3>
-<p>Giudizio sintetico: "ottima", "buona", "discreta", "molto da revisionare". Elenca pattern ricorrenti di errore.</p>
-
-<h3>10. Ritmo, leggibilità e tenuta dell'attenzione</h3>
-<p>Commenta ritmo inizio/centro/finale. Indica dove "si siede" e perché.</p>
-
-<h3>11. Originalità e posizionamento</h3>
-<p>Valuta originalità rispetto al mercato italiano contemporaneo.</p>
-
-<h3>12. Confronto con il mercato (top 10 narrativa italiana)</h3>
-<p>Confronta con bestseller contemporanei: tono, target, impostazione, competitività.</p>
-
-<h3>13. Potenziale audiovisivo (cinema / serie TV)</h3>
-<p>Valuta adattabilità e ostacoli concreti.</p>
-
-<h3>14. Interventi editoriali consigliati</h3>
-<p>Proponi interventi tecnici e specifici riferiti a questo manoscritto.</p>
-<ul>
-<li>Ristrutturare la parte centrale eliminando o accorciando sezioni ridondanti che rallentano il ritmo.</li>
-<li>Rafforzare motivazioni e arco dei personaggi principali.</li>
-<li>Ridurre/accorpare personaggi secondari senza funzione.</li>
-<li>Riscrivere dialoghi troppo esplicativi.</li>
-<li>Semplificare descrizioni e introspettivi che appesantiscono.</li>
-<li>Controllare coerenza temporale (flashback, salti di scena).</li>
-<li>Rivedere il finale per maggiore incisività e coerenza.</li>
-</ul>
-
-<h3>15. Giudizio finale e punteggio</h3>
-<p><strong>Giudizio di pubblicabilità (scegli solo uno):</strong><br/>
-- NON PUBBLICABILE<br/>
-- PUBBLICABILE SOLO CON EDITING PROFONDO<br/>
-- PUBBLICABILE SENZA RISERVE<br/><br/>
-<strong>Punteggio tecnico (1–10):</strong> voto severo e realistico.<br/><br/>
-Paragrafo finale freddo e diretto.</p>
-
----
-RESTITUISCI SOLO HTML.
-`;
-
-        const final = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          temperature: 0,
-          messages: [{ role: "user", content: finalPrompt }],
-        });
-
-        const finalText =
-          final.choices?.[0]?.message?.content?.trim() ||
-          "Errore nella valutazione finale.";
-
-        let fixedText = applyTypographicFixes(finalText);
-
-        const evaluations = await loadEvaluations();
-        const newEval = {
-          id: Date.now().toString(),
-          projectId: projectId || null,
-          title: projectTitle || "Titolo mancante",
-          author: projectAuthor || "Autore mancante",
-          date: new Date().toISOString(),
-          html: fixedText,
-        };
-
-        evaluations.push(newEval);
-        await saveEvaluations(evaluations);
-
-        return res.json({
-          success: true,
-          result: fixedText,
-          savedId: newEval.id,
-        });
-      } catch (err) {
-        console.error("Errore valutazione manoscritto:", err);
+      const valutazionePrompt = readPromptFile("valutazione-fermento.txt");
+      if (!valutazionePrompt.trim()) {
         return res.status(500).json({
           success: false,
-          error: "Errore durante la valutazione del manoscritto.",
+          error: "Prompt valutazione-fermento.txt mancante o vuoto",
         });
       }
-    }
 
-    // ===========================
-    // SE SERVE LA VALUTAZIONE PER L'EDITING
-    // ===========================
-    let evaluationSnippet = "";
-
-    if (
-      useEvaluationForEditing &&
-      currentEvaluation &&
-      currentEvaluation.trim().length > 0
-    ) {
-      evaluationSnippet = currentEvaluation.trim().slice(0, 2000);
-      console.log(
-        "Uso valutazione fornita dal frontend, length:",
-        evaluationSnippet.length
-      );
-    } else if (useEvaluation && projectId) {
+      // opzionale: snippet top list mercato
+      let topListSnippet = "";
       try {
-        const allEvals = await loadEvaluations();
-        const projectEvals = allEvals
-          .filter((ev) => ev.projectId === projectId)
-          .sort(
-            (a, b) =>
-              new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
-          );
-
-        const lastEval = projectEvals[0];
-        if (lastEval) {
-          const rawEval = lastEval.html || lastEval.evaluationText || "";
-          evaluationSnippet = rawEval.slice(0, 20000);
-          console.log(
-            "Trovata valutazione per editing (da file), id:",
-            lastEval.id,
-            "snippet length:",
-            evaluationSnippet.length
-          );
-        } else {
-          console.log("Nessuna valutazione trovata per projectId:", projectId);
+        const topList = await loadMarketTopList();
+        if (Array.isArray(topList) && topList.length > 0) {
+          topListSnippet = JSON.stringify(topList).slice(0, 15000);
         }
       } catch (err) {
-        console.error("Errore nel recupero valutazione per editing:", err);
+        console.error("Errore nel caricamento Top 10 mercato:", err);
       }
+
+      // spezzettiamo in sezioni grandi (come facevi prima)
+      const chunks = chunkText(textEffective, 80000);
+      console.log("VALUTAZIONE: numero chunks:", chunks.length);
+
+      const partialAnalyses = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        const sectionHeader =
+          `SEZIONE ${i + 1}/${chunks.length}\n` +
+          `Titolo: ${projectTitle || "Titolo mancante"}\n` +
+          `Autore: ${projectAuthor || "Autore mancante"}\n`;
+
+        const p = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0,
+          messages: [
+            { role: "system", content: valutazionePrompt + "\n\n[FASE: ANALISI SEZIONE]\n" + sectionHeader },
+            { role: "user", content: chunks[i] },
+          ],
+        });
+
+        partialAnalyses.push(p.choices?.[0]?.message?.content?.trim() || "");
+      }
+
+      // sintesi finale
+      const synthesisUser =
+        `DATI:\n` +
+        `Titolo: ${projectTitle || "Titolo mancante"}\n` +
+        `Autore: ${projectAuthor || "Autore mancante"}\n\n` +
+        (topListSnippet ? `DATI DI MERCATO (JSON):\n${topListSnippet}\n\n` : "") +
+        `ANALISI PARZIALI:\n` +
+        partialAnalyses.join("\n\n--- SEZIONE ---\n\n");
+
+      const final = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          { role: "system", content: valutazionePrompt + "\n\n[FASE: SINTESI FINALE]" },
+          { role: "user", content: synthesisUser },
+        ],
+      });
+
+      const finalText =
+        final.choices?.[0]?.message?.content?.trim() ||
+        "Errore nella valutazione finale.";
+
+      const fixedText = applyTypographicFixes(finalText);
+
+      // salviamo nell’archivio valutazioni (come prima)
+      const evaluations = await loadEvaluations();
+      const newEval = {
+        id: Date.now().toString(),
+        projectId: projectId || null,
+        title: projectTitle || "Titolo mancante",
+        author: projectAuthor || "Autore mancante",
+        date: new Date().toISOString(),
+        html: fixedText,
+      };
+      evaluations.push(newEval);
+      await saveEvaluations(evaluations);
+
+      return res.json({
+        success: true,
+        result: fixedText,
+        savedId: newEval.id,
+      });
     }
 
-    // ============================================================
-    // ✅ EDITING FERMENTO UNICO (editing-fermento / editing / default)
-    //    - Regole grafiche: SOLO file esterno prompts/editing-fermento-B.txt
-    //    - Post-process: spazio dopo trattino dialogo + applyTypography
-    // ============================================================
-    if (
-      mode === "editing-fermento" ||
-      mode === "editing" ||
-      mode === "editing-default"
-    ) {
-      // 1) Leggi il prompt esterno (dentro hai già le regole grafiche Narrativa contemporanea)
-      let systemForChunk = fs.readFileSync(
-        path.join(process.cwd(), "prompts", "editing-fermento-B.txt"),
-        "utf8"
-      );
+    // ==========================
+    // 2) EDITING FERMENTO (PROMPT ESTERNO) — il tuo flusso attuale
+    // ==========================
+    if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
+      // prompt esterno già esistente
+      let systemForChunk = readPromptFile("editing-fermento-B.txt");
+      if (!systemForChunk.trim()) {
+        return res.status(500).json({
+          success: false,
+          error: "Prompt editing-fermento-B.txt mancante o vuoto",
+        });
+      }
 
-      // 2) Inietta valutazione se presente
-      if (evaluationSnippet) {
+      // (opzionale) valutazione fornita dal frontend per guidare editing
+      let evaluationSnippet = "";
+      if (useEvaluationForEditing && currentEvaluation && currentEvaluation.trim().length > 0) {
+        evaluationSnippet = currentEvaluation.trim().slice(0, 2000);
         systemForChunk +=
-          "\n\nISTRUZIONI AGGIUNTIVE (OBBLIGATORIE): devi applicare in modo prioritario la seguente VALUTAZIONE EDITORIALE (estratto).\n\n" +
+          "\n\nISTRUZIONI AGGIUNTIVE (OBBLIGATORIE): applica prioritariamente questo estratto di VALUTAZIONE EDITORIALE:\n\n" +
           evaluationSnippet;
       }
 
@@ -812,9 +649,9 @@ RESTITUISCI SOLO HTML.
         const chunk = chunks[i];
 
         let chunkUserMessage = [
-          "Esegui un EDITING + CORREZIONE BOZZE: migliora chiarezza e scorrevolezza SENZA tagliare, condensare o riscrivere in modo creativo.",
-          "NON cambiare fatti, eventi, personaggi, luoghi né l’ordine delle scene.",
-          "Restituisci SOLO HTML NUDO usando SOLO <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
+          // testo minimale: le regole vere stanno nel prompt esterno
+          "Esegui l’editing secondo le regole del sistema.",
+          "Restituisci SOLO il contenuto nel formato richiesto dal prompt di sistema.",
           "",
           chunk,
         ].join("\n");
@@ -846,17 +683,9 @@ RESTITUISCI SOLO HTML.
           .trim();
 
         const fixedChunk = applyTypographicFixes(cleanedChunk);
+        const afterTypography = applyTypography(fixedChunk);
 
-        // ✅ 1) applichiamo la tua regola grafica: "-Ehi" -> "- Ehi" (solo dialoghi a inizio riga/paragrafo)
-        const dashed = fixDialogueDashSpacing(fixedChunk);
-
-        // ✅ 2) applichiamo applyTypography (altre regole tipografiche controllate)
-        const afterTypography = applyTypography(dashed);
-
-        // ✅ 3) protezione finale: se applyTypography ha toccato qualcosa, rimettiamo lo spazio dopo trattino
-        const finalChunk = fixDialogueDashSpacing(afterTypography);
-
-        allEdited += finalChunk + "\n\n";
+        allEdited += afterTypography + "\n\n";
       }
 
       return res.json({
@@ -865,160 +694,43 @@ RESTITUISCI SOLO HTML.
       });
     }
 
-    // 🎯 CORREZIONE FERMENTO (rigida)
-    if (mode === "correzione" || mode === "correzione-soft") {
-      systemMessage = [
-        "Sei un correttore di bozze editoriale professionista per una casa editrice italiana.",
-        "",
-        "DEVI:",
-        "- Correggere SOLO refusi, errori di battitura, punteggiatura, spazi, maiuscole/minuscole e accenti.",
-        "- NON cambiare stile, registro, ritmo, lessico o contenuto.",
-        "- NON riscrivere, NON semplificare, NON spiegare, NON commentare.",
-        "- NON aggiungere alcuna frase.",
-        "- Mantenere identici paragrafi, a capo e struttura.",
-        "",
-        "Restituisci SOLO il testo corretto.",
-      ].join("\n");
-
-      userMessage = ["Correggi il testo seguente:", "", text].join("\n");
-    }
-
-    // 🌍 TRADUZIONE ITA → ENG
-    else if (mode === "traduzione-it-en") {
-      systemMessage = [
-        "Sei un traduttore professionista dall'italiano all'inglese.",
-        "Mantieni il significato e il tono del testo, ma usa un inglese naturale e scorrevole.",
-        "Non aggiungere spiegazioni, non commentare, non cambiare il contenuto.",
-        "Restituisci SOLO la traduzione inglese.",
-      ].join("\n");
-
-      userMessage = "Traduci in inglese:\n\n" + text;
-    }
-
-    // ✏️ EDITING – (altri mode custom che contengono 'edit' ma NON sono quelli Fermento)
-    if (
-      mode &&
-      typeof mode === "string" &&
-      mode.toLowerCase().includes("edit") &&
-      mode !== "editing" &&
-      mode !== "editing-default" &&
-      mode !== "editing-fermento"
-    ) {
-      const m = mode.toLowerCase();
-
-      let livello = "moderato";
-      if (m.includes("soft") || m.includes("legger")) livello = "leggero";
-      else if (m.includes("profond") || m.includes("deep")) livello = "profondo";
-
-      let baseSystemMessage = fs.readFileSync(
-        path.join(process.cwd(), "prompts", "editing-fermento-B.txt"),
-        "utf8"
-      );
-
-      if (evaluationSnippet) {
-        baseSystemMessage +=
-          "\n\nISTRUZIONI AGGIUNTIVE (OBBLIGATORIE): " +
-          "devi applicare in modo prioritario la seguente VALUTAZIONE EDITORIALE (estratto). " +
-          "Ogni intervento di editing deve essere coerente con le critiche e gli interventi richiesti qui sotto:\n\n" +
-          evaluationSnippet;
-      }
-
-      const chunks = chunkText(textEffective, 15000);
-
-      console.log("EDITING a chunk, mode:", mode, "numero chunks:", chunks.length);
-
-      let allEdited = "";
-      const MAX_PROMPT_CHARS_LOCAL = 60000;
-
-      for (let i = 0; i < chunks.length; i++) {
-        let chunk = chunks[i];
-
-        let chunkUserMessage = [
-          "Esegui un editing " +
-            livello.toUpperCase() +
-            " del seguente testo. " +
-            "Puoi tagliare e condensare ridondanze e verbosità, ma NON cambiare i fatti, gli eventi, i personaggi, i luoghi né la sequenza della storia.",
-          "",
-          chunk,
-        ].join("\n");
-
-        if (chunkUserMessage.length > MAX_PROMPT_CHARS_LOCAL) {
-          console.log(
-            "chunkUserMessage troppo lungo, lo taglio da",
-            chunkUserMessage.length,
-            "a",
-            MAX_PROMPT_CHARS_LOCAL
-          );
-          chunkUserMessage = chunkUserMessage.slice(0, MAX_PROMPT_CHARS_LOCAL);
-        }
-
-        const completionChunk = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          temperature: 0,
-          messages: [
-            { role: "system", content: baseSystemMessage },
-            { role: "user", content: chunkUserMessage },
-          ],
+    // ==========================
+    // 3) TRADUZIONE ITA->ENG (PROMPT ESTERNO)
+    // ==========================
+    if (mode === "traduzione-it-en") {
+      const translationPrompt = readPromptFile("traduzione-it-en.txt");
+      if (!translationPrompt.trim()) {
+        return res.status(500).json({
+          success: false,
+          error: "Prompt traduzione-it-en.txt mancante o vuoto",
         });
-
-        const aiChunk = completionChunk.choices?.[0]?.message?.content?.trim() || "";
-
-        const cleanedChunk = aiChunk
-          .replace(/<p>\s*\**\s*Sezione\s+\d+\s*\/\s*\d+[^<]*<\/p>/gi, "")
-          .replace(/\**\s*Sezione\s+\d+\s*\/\s*\d+[^\n]*\**/gi, "")
-          .trim();
-
-        const fixedChunk = applyTypographicFixes(cleanedChunk);
-        const dashed = fixDialogueDashSpacing(fixedChunk);
-        const finalChunk = fixDialogueDashSpacing(applyTypography(dashed));
-
-        allEdited += finalChunk + "\n\n";
       }
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          { role: "system", content: translationPrompt },
+          { role: "user", content: textEffective },
+        ],
+      });
+
+      const aiText =
+        completion.choices?.[0]?.message?.content?.trim() ||
+        "Errore: nessun testo generato.";
 
       return res.json({
         success: true,
-        result: allEdited.trim(),
+        result: aiText,
       });
     }
 
-    // Fallback per tutte le altre modalità
-    if (!userMessage) userMessage = textEffective;
-
-
-    const MAX_PROMPT_CHARS = 60000;
-    if (userMessage && userMessage.length > MAX_PROMPT_CHARS) {
-      console.log(
-        "userMessage troppo lungo (fallback generico), lo taglio da",
-        userMessage.length,
-        "a",
-        MAX_PROMPT_CHARS
-      );
-      userMessage = userMessage.slice(0, MAX_PROMPT_CHARS);
-    }
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      messages: [
-        { role: "system", content: systemMessage || "" },
-        { role: "user", content: userMessage },
-      ],
-    });
-
-    const aiText =
-      completion.choices?.[0]?.message?.content?.trim() ||
-      "Errore: nessun testo generato.";
-
-    const fixedText = applyTypographicFixes(aiText);
-
-    console.log(
-      "Risposta OpenAI ricevuta (fallback generico), lunghezza:",
-      fixedText.length
-    );
-
-    return res.json({
-      success: true,
-      result: fixedText,
+    // ==========================
+    // FALLBACK (se arriva un mode sconosciuto)
+    // ==========================
+    return res.status(400).json({
+      success: false,
+      error: `Mode non supportata: ${mode || "(mancante)"}`,
     });
   } catch (err) {
     console.error("Errore /api/ai:", err);
@@ -1034,7 +746,7 @@ RESTITUISCI SOLO HTML.
 });
 
 // ===============================
-// AVVIO SERVER 
+// AVVIO SERVER
 // ===============================
 app.listen(PORT, () => {
   console.log("### FIRMA BACKEND FERMENTO: INDEX.JS MODIFICATO OGGI ###");
