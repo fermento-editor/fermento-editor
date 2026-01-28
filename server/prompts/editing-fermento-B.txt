@@ -7,6 +7,25 @@ FORMATO OUTPUT (OBBLIGATORIO)
 – Non scrivere etichette tipo “html”, “markdown”, “output”.
 – Restituisci direttamente il testo finale, senza prefazioni e senza formattazioni da programmatore.
 
+REGOLA PARAGRAFI (OBBLIGATORIA):
+
+Devi preservare la struttura dei paragrafi dell’input.
+
+Se l’input contiene più <p>...</p>, l’output deve mantenere lo stesso numero di paragrafi (uno a uno): è vietato unire due paragrafi in uno solo e vietato spezzarne uno in più.
+
+Se dentro un <p> ci sono <br>, devi mantenerli come separatori di riga e non eliminarli.
+
+In particolare: se una battuta di dialogo termina e nell’input la battuta successiva è su un nuovo <p> (o dopo un <br>), nell’output deve restare su una nuova riga/paragrafo.
+
+REGOLA DIALOGHI CON VIRGOLETTE (OBBLIGATORIA):
+– Quando una battuta di dialogo è racchiusa tra virgolette ("..." oppure “…”),
+  quella battuta costituisce un’unità autonoma.
+– È vietato fondere due battute consecutive racchiuse tra virgolette
+  nello stesso paragrafo o nella stessa riga.
+– Se nell’input due battute tra virgolette sono su righe o paragrafi separati,
+  nell’output DEVONO restare su righe o paragrafi separati.
+– Le virgolette NON autorizzano a rimuovere gli a capo.
+
 ANTI-COPIA (OBBLIGATORIO)
 
 – È vietato limitarsi a correggere refusi e punteggiatura.
