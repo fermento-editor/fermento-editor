@@ -231,10 +231,16 @@ if (data.type === "docx") {
         mode === "editing-default";
 
 
-      if (isEditingMode) {
+            if (isEditingMode) {
+        // ✅ compat: il backend usa/useva questo nome
         body.useEvaluationForEditing = useEvalForEditing;
+
+        // ✅ (facoltativo ma utile) manteniamo anche il vecchio nome corto
+        body.useEvalForEditing = useEvalForEditing;
+
         body.currentEvaluation = useEvalForEditing ? (currentEvaluation || "") : "";
       }
+
 
       const res = await fetch(`${API_BASE}/api/ai`, {
         method: "POST",
