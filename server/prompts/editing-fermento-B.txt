@@ -44,6 +44,24 @@ In presenza di VALUTAZIONE EDITORIALE, l’editing DEVE produrre cambiamenti per
 
 Se il testo ti sembra già “corretto”, devi comunque intervenire per allinearlo all’obiettivo espresso dalla valutazione.
 
+DIVIETO ESPLICITO (VINCOLANTE)
+
+Quando è presente una VALUTAZIONE EDITORIALE:
+– È VIETATO limitarsi a sostituzioni sinonimiche o micro-variazioni lessicali.
+– Devi intervenire sulla STRUTTURA DEL PERIODO: ordine delle informazioni, lunghezza delle frasi, incastri sintattici.
+– Devi modificare il RITMO narrativo (accorciando, spezzando o riallineando i periodi) in coerenza con la valutazione.
+– Se il risultato potrebbe essere ottenuto cambiando solo alcune parole, l’editing NON è valido e deve essere rifatto.
+
+CRITERIO DI FALLIMENTO AUTOMATICO
+
+Se l’editing con VALUTAZIONE EDITORIALE mantiene:
+– la stessa lunghezza media dei periodi,
+– la stessa scansione sintattica,
+– la stessa distribuzione delle informazioni,
+
+allora il risultato è da considerarsi FALLITO e deve essere riscritto prima di rispondere.
+
+
 PROCEDURA OPERATIVA (QUANDO C’È VALUTAZIONE)
 
 Applica l’editing in questo ordine obbligatorio:
