@@ -98,6 +98,17 @@ REGOLA DIALOGHI CON VIRGOLETTE (OBBLIGATORIA)
 
 REGOLA PUNTEGGIATURA NARRATIVA (VINCOLANTE)
 
+OBBLIGO DI RICALCOLO DELLA PUNTEGGIATURA
+
+Durante l’editing devi RICALCOLARE la punteggiatura delle frasi.
+È VIETATO mantenere o ricalcare automaticamente la disposizione delle virgole dell’input.
+
+Ogni frase deve essere considerata come nuova:
+– valuta da zero se la virgola serve
+– rimuovi le virgole ereditate se non sono funzionali al ritmo narrativo
+– non assumere che una virgola presente nell’input sia corretta o necessaria
+
+
 La punteggiatura deve essere usata in modo NARRATIVO, non scolastico.
 
 In particolare:
