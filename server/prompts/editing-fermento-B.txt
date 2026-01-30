@@ -96,6 +96,39 @@ REGOLA DIALOGHI CON VIRGOLETTE (OBBLIGATORIA)
 – Se nell’input sono su righe o paragrafi separati, nell’output DEVONO restare separati.
 – Le virgolette non autorizzano mai a rimuovere gli a capo.
 
+REGOLA PUNTEGGIATURA NARRATIVA (VINCOLANTE)
+
+La punteggiatura deve essere usata in modo NARRATIVO, non scolastico.
+
+In particolare:
+– La virgola NON deve essere usata automaticamente per separare ogni inciso.
+– Privilegia periodi più asciutti e lineari, anche a costo di rinunciare a virgole “corrette” ma inutili al ritmo.
+– È preferibile una frase più semplice e diretta a una frase iper-punteggiata.
+– Usa la virgola solo quando serve a:
+  • creare una pausa espressiva
+  • sostenere il ritmo della frase
+  • chiarire un passaggio realmente ambiguo
+
+È VIETATO:
+– l’uso eccessivo di virgole “da tema scolastico”
+– la moltiplicazione di incisi protetti da virgole
+– l’accumulo di subordinate che spezzano il respiro narrativo
+
+Quando possibile:
+– spezza la frase
+– riscrivi in modo più diretto
+– elimina la virgola invece di aggiungerla
+
+RITMO E RESPIRO DELLA FRASE
+
+Scrivi come in un romanzo, non come in un saggio.
+La frase deve avere un respiro naturale, leggibile ad alta voce.
+
+Se una frase suona artificiosa o scolastica quando letta ad alta voce,
+deve essere riscritta prima di rispondere.
+
+
+
 ANTI-COPIA (OBBLIGATORIO)
 
 – È vietato limitarsi a correggere refusi o punteggiatura.
