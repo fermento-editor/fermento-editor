@@ -746,27 +746,62 @@ app.post("/api/ai", async (req, res) => {
         normalizedParagraphs.length
       );
 
-      let out = "";
-      const MAX_P_USER = 8000;
+      // Ricostruzione output mantenendo ESATTAMENTE l'ordine originale
+      const outputParts = new Array(normalizedParagraphs.length).fill(null);
 
+      // ====== BATCH SETTINGS (anti-timeout) ======
+      const BATCH_MAX_PARAS = 25;      // paragrafi per chiamata
+      const BATCH_MAX_CHARS = 14000;   // limite caratteri per batch (sicurezza)
+
+      // ====== 1) Costruisci lista paragrafi editabili (con indice) ======
+      const editable = []; // { idx, pHtml }
       for (let i = 0; i < normalizedParagraphs.length; i++) {
         const pHtml = normalizedParagraphs[i];
 
         // Mantieni paragrafi vuoti (regola A)
         const textOnly = stripTagsToText(pHtml);
         if (!textOnly) {
-          out += "<p></p>\n";
+          outputParts[i] = "<p></p>";
           continue;
         }
 
         // Mantieni titoli identici (CAPITOLO X ecc.)
         if (isChapterTitleParagraph(pHtml)) {
-          out += `<p>${stripTagsToText(pHtml)}</p>\n`;
+          outputParts[i] = `<p>${stripTagsToText(pHtml)}</p>`;
           continue;
         }
 
-        // Un paragrafo alla volta: impossibile fondere
-        let userMsg = [
+        editable.push({ idx: i, pHtml });
+      }
+
+      // ====== 2) Crea batches ======
+      const batches = [];
+      let cur = [];
+      let curChars = 0;
+
+      for (const item of editable) {
+        const len = item.pHtml.length;
+
+        const exceed =
+          cur.length >= BATCH_MAX_PARAS ||
+          (curChars + len) > BATCH_MAX_CHARS;
+
+        if (exceed && cur.length > 0) {
+          batches.push(cur);
+          cur = [];
+          curChars = 0;
+        }
+
+        cur.push(item);
+        curChars += len;
+      }
+      if (cur.length > 0) batches.push(cur);
+
+      console.log("EDITING BATCHES:", batches.length, "editable paragraphs:", editable.length);
+
+      // ====== Helper: fallback per-paragrafo (solo se batch fallisce) ======
+      async function editSingleParagraph(pHtml) {
+        const userMsg = [
           "Devi riscrivere SOLO questo singolo paragrafo.",
           "VINCOLI:",
           "- Devi restituire ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
@@ -778,8 +813,6 @@ app.post("/api/ai", async (req, res) => {
           pHtml,
         ].join("\n");
 
-        if (userMsg.length > MAX_P_USER) userMsg = userMsg.slice(0, MAX_P_USER);
-
         const completion = await openai.chat.completions.create({
           model: "gpt-4o-mini",
           temperature: 0,
@@ -790,12 +823,92 @@ app.post("/api/ai", async (req, res) => {
         });
 
         const ai = completion.choices?.[0]?.message?.content?.trim() || "";
-        const pOut = normalizeAiParagraph(ai);
-
-               const finalP = pOut;
-
-        out += finalP + "\n";
+        return normalizeAiParagraph(ai);
       }
+
+      // ====== 3) Esegui batches ======
+      for (let b = 0; b < batches.length; b++) {
+        const batch = batches[b];
+        const batchInput = batch.map((x) => x.pHtml).join("\n");
+
+        const userMsg = [
+          "Devi riscrivere i paragrafi qui sotto.",
+          "VINCOLI ASSOLUTI:",
+          `- Devi restituire ESATTAMENTE ${batch.length} paragrafi <p>...</p>, nello stesso ordine.`,
+          "- Vietato unire o spezzare paragrafi.",
+          "- Vietato aggiungere prefazioni o commenti.",
+          "- Tag ammessi: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
+          "",
+          "PARAGRAFI INPUT:",
+          batchInput,
+        ].join("\n");
+
+        console.log(`EDITING batch ${b + 1}/${batches.length} - paras: ${batch.length}`);
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0,
+          messages: [
+            { role: "system", content: systemForChunk },
+            { role: "user", content: userMsg },
+          ],
+        });
+
+        const aiText = completion.choices?.[0]?.message?.content?.trim() || "";
+        let pList = extractParagraphs(aiText);
+
+        // Retry 1 volta se mismatch
+        if (pList.length !== batch.length) {
+          console.log(
+            "WARN batch mismatch -> retry once. expected:",
+            batch.length,
+            "got:",
+            pList.length
+          );
+
+          const retryMsg = [
+            "ERRORE: prima non hai restituito il numero corretto di paragrafi.",
+            `Devi restituire ESATTAMENTE ${batch.length} paragrafi <p>...</p>, uno dopo l'altro, senza altro testo.`,
+            "",
+            "PARAGRAFI INPUT:",
+            batchInput,
+          ].join("\n");
+
+          const retry = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            temperature: 0,
+            messages: [
+              { role: "system", content: systemForChunk },
+              { role: "user", content: retryMsg },
+            ],
+          });
+
+          const retryText = retry.choices?.[0]?.message?.content?.trim() || "";
+          pList = extractParagraphs(retryText);
+        }
+
+        // Se ancora mismatch: fallback per-paragrafo (solo per questo batch)
+        if (pList.length !== batch.length) {
+          console.log("ERROR batch mismatch persists -> fallback to single-paragraph for this batch.");
+          for (const item of batch) {
+            const pOut = await editSingleParagraph(item.pHtml);
+            outputParts[item.idx] = pOut;
+          }
+          continue;
+        }
+
+        // OK: assegna ogni paragrafo ESATTAMENTE al suo indice originale
+        for (let j = 0; j < batch.length; j++) {
+          outputParts[batch[j].idx] = normalizeAiParagraph(pList[j]);
+        }
+      }
+
+      // ====== 4) Ricomponi output in ordine ======
+      let out = outputParts
+        .map((p) => (p == null ? "<p></p>" : p))
+        .join("\n");
+
+
 
       return res.json({
         success: true,
