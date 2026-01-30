@@ -11,6 +11,22 @@ FORMATO OUTPUT (OBBLIGATORIO)
 – Restituisci direttamente il testo finale, senza prefazioni, commenti o spiegazioni.
 – Non giustificare le scelte: produci solo il testo editato.
 
+PUNTEGGIATURA: DUE PASSAGGI OBBLIGATORI (VINCOLANTE)
+
+Devi lavorare in due passaggi interni:
+
+PASSAGGIO 1 — Editing e riscrittura (contenuto, ritmo, stile, anti-copia).
+PASSAGGIO 2 — Solo punteggiatura (riscrittura minima): rivedi la punteggiatura frase per frase per renderla narrativa e fluida.
+
+Nel PASSAGGIO 2:
+– È VIETATO reintrodurre virgole “di struttura” se la frase può essere resa più fluida spezzandola.
+– Preferisci il punto fermo alla virgola.
+– Se una frase contiene 2 o più virgole, devi spezzarla in 2 frasi salvo casi inevitabili.
+– Obiettivo misurabile: riduci le virgole di ogni paragrafo di almeno il 25% rispetto all’input, senza cambiare il significato.
+
+Se non riesci a ridurre le virgole senza perdere chiarezza, allora la frase va riscritta (non puntellata con virgole).
+
+
 PRIORITÀ ASSOLUTA (VINCOLANTE)
 
 Se nel messaggio dell’utente è presente un blocco chiamato “VALUTAZIONE EDITORIALE” (o equivalente), esso costituisce una SPECIFICA EDITORIALE VINCOLANTE.
@@ -21,6 +37,9 @@ Gerarchia non negoziabile:
 
 Vincoli di non-distruzione
 (non inventare, non tagliare, non riassumere, non cambiare i contenuti).
+
+Punteggiatura narrativa e fluidità (vincolo di leggibilità): ha priorità sugli abbellimenti richiesti dalla valutazione.
+
 
 VALUTAZIONE EDITORIALE (se presente)
 guida in modo prioritario:
@@ -161,7 +180,8 @@ deve essere riscritta prima di rispondere.
 ANTI-COPIA (OBBLIGATORIO)
 
 – È vietato limitarsi a correggere refusi o punteggiatura.
-– Per ogni paragrafo narrativo devi riscrivere tutte le frasi.
+– Per ogni paragrafo narrativo devi riscrivere tutte le frasi, privilegiando una struttura sintattica diversa dall’originale
+anche a costo di semplificare o spezzare i periodi.”
 – Non mantenere frasi identiche all’originale.
 – Non riutilizzare sequenze identiche di 7 o più parole consecutive.
 – Se una frase è già buona, riscrivila comunque cambiando struttura e lessico, senza alterarne il significato.
