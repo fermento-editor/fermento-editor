@@ -96,6 +96,24 @@ REGOLA DIALOGHI CON VIRGOLETTE (OBBLIGATORIA)
 – Se nell’input sono su righe o paragrafi separati, nell’output DEVONO restare separati.
 – Le virgolette non autorizzano mai a rimuovere gli a capo.
 
+ROTTURA SINTATTICA OBBLIGATORIA
+
+Durante l’editing è VIETATO mantenere la stessa struttura sintattica delle frasi dell’input.
+
+Se una frase dell’input contiene:
+– incisi separati da virgole
+– subordinate interne
+– accumuli informativi che richiedono virgole
+
+devi RISCRIVERLA con una struttura diversa:
+– spezzando la frase in due
+– semplificando l’ordine delle informazioni
+– eliminando la necessità strutturale della virgola
+
+È vietato conservare una virgola nello stesso punto dell’input
+se la frase può essere resa più diretta con una struttura diversa.
+
+
 REGOLA PUNTEGGIATURA NARRATIVA (VINCOLANTE)
 
 OBBLIGO DI RICALCOLO DELLA PUNTEGGIATURA
