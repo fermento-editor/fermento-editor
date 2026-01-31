@@ -749,9 +749,9 @@ app.post("/api/ai", async (req, res) => {
       // Ricostruzione output mantenendo ESATTAMENTE l'ordine originale
       const outputParts = new Array(normalizedParagraphs.length).fill(null);
 
-      // ====== BATCH SETTINGS (anti-timeout) ======
-      const BATCH_MAX_PARAS = 25;      // paragrafi per chiamata
-      const BATCH_MAX_CHARS = 14000;   // limite caratteri per batch (sicurezza)
+      // ====== BATCH SETTINGS (anti-timeout + anti-mismatch) ======
+      const BATCH_MAX_PARAS = 10;      // meno paragrafi per batch = meno errori di conteggio
+      const BATCH_MAX_CHARS = 9000;    // batch più piccoli = output più controllabile
 
       // ====== 1) Costruisci lista paragrafi editabili (con indice) ======
       const editable = []; // { idx, pHtml }
@@ -832,16 +832,19 @@ app.post("/api/ai", async (req, res) => {
         const batchInput = batch.map((x) => x.pHtml).join("\n");
 
         const userMsg = [
-          "Devi riscrivere i paragrafi qui sotto.",
-          "VINCOLI ASSOLUTI:",
-          `- Devi restituire ESATTAMENTE ${batch.length} paragrafi <p>...</p>, nello stesso ordine.`,
-          "- Vietato unire o spezzare paragrafi.",
-          "- Vietato aggiungere prefazioni o commenti.",
-          "- Tag ammessi: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
-          "",
-          "PARAGRAFI INPUT:",
-          batchInput,
-        ].join("\n");
+      "Devi riscrivere i paragrafi qui sotto.",
+      "VINCOLI ASSOLUTI:",
+       `- Devi restituire ESATTAMENTE ${batch.length} elementi in un JSON array (solo JSON, nessun altro testo).`,
+      "- Ogni elemento dell'array deve essere una stringa che contiene ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
+      "- Devi mantenere ESATTAMENTE lo stesso ordine degli input.",
+       "- Vietato unire o spezzare paragrafi.",
+       "- Vietato aggiungere prefazioni, commenti, markdown o backticks.",
+       "- Tag ammessi dentro i <p>: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
+       "",
+        "INPUT (paragrafi <p>...</p> uno dopo l'altro):",
+       batchInput,
+      ].join("\n");
+
 
         console.log(`EDITING batch ${b + 1}/${batches.length} - paras: ${batch.length}`);
 
@@ -854,8 +857,20 @@ app.post("/api/ai", async (req, res) => {
           ],
         });
 
-        const aiText = completion.choices?.[0]?.message?.content?.trim() || "";
-        let pList = extractParagraphs(aiText);
+       let aiText = completion.choices?.[0]?.message?.content?.trim() || "";
+
+// Se il modello mette ```json ... ```, ripulisco
+aiText = aiText.replace(/^```(?:json)?\s*/i, "").replace(/```[\s\r\n]*$/i, "").trim();
+
+let pList = [];
+try {
+  const parsed = JSON.parse(aiText);
+  if (Array.isArray(parsed)) pList = parsed;
+} catch (e) {
+  pList = [];
+}
+
+
 
         // Retry 1 volta se mismatch
         if (pList.length !== batch.length) {
@@ -866,13 +881,16 @@ app.post("/api/ai", async (req, res) => {
             pList.length
           );
 
-          const retryMsg = [
-            "ERRORE: prima non hai restituito il numero corretto di paragrafi.",
-            `Devi restituire ESATTAMENTE ${batch.length} paragrafi <p>...</p>, uno dopo l'altro, senza altro testo.`,
-            "",
-            "PARAGRAFI INPUT:",
-            batchInput,
-          ].join("\n");
+         const retryMsg = [
+        "ERRORE: prima non hai restituito il JSON corretto o il numero corretto di elementi.",
+       `Devi restituire SOLO un JSON array di lunghezza ESATTA ${batch.length}.`,
+       "Ogni elemento deve essere una stringa con ESATTAMENTE UN SOLO <p>...</p>.",
+       "Nessun altro testo. Nessun markdown. Nessun backtick.",
+       "",
+       "INPUT:",
+       batchInput,
+      ].join("\n");
+
 
           const retry = await openai.chat.completions.create({
             model: "gpt-4o-mini",
@@ -883,25 +901,35 @@ app.post("/api/ai", async (req, res) => {
             ],
           });
 
-          const retryText = retry.choices?.[0]?.message?.content?.trim() || "";
-          pList = extractParagraphs(retryText);
-        }
+        let retryText = retry.choices?.[0]?.message?.content?.trim() || "";
 
-        // Se ancora mismatch: fallback per-paragrafo (solo per questo batch)
-        if (pList.length !== batch.length) {
-          console.log("ERROR batch mismatch persists -> fallback to single-paragraph for this batch.");
-          for (const item of batch) {
-            const pOut = await editSingleParagraph(item.pHtml);
-            outputParts[item.idx] = pOut;
-          }
-          continue;
-        }
+// Se il modello mette ```json ... ```, ripulisco anche qui
+retryText = retryText.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
 
-        // OK: assegna ogni paragrafo ESATTAMENTE al suo indice originale
-        for (let j = 0; j < batch.length; j++) {
-          outputParts[batch[j].idx] = normalizeAiParagraph(pList[j]);
-        }
-      }
+pList = [];
+try {
+  const parsedRetry = JSON.parse(retryText);
+  if (Array.isArray(parsedRetry)) pList = parsedRetry;
+} catch (e) {
+  pList = [];
+}
+} // <-- CHIUDE l'if del retry (mancava)
+
+// Se ancora mismatch: fallback per-paragrafo (solo per questo batch)
+if (pList.length !== batch.length) {
+  console.log("ERROR batch mismatch persists -> fallback to single-paragraph for this batch.");
+  for (const item of batch) {
+    const pOut = await editSingleParagraph(item.pHtml);
+    outputParts[item.idx] = pOut;
+  }
+  continue;
+}
+
+// OK: assegna ogni paragrafo ESATTAMENTE al suo indice originale
+for (let j = 0; j < batch.length; j++) {
+  outputParts[batch[j].idx] = normalizeAiParagraph(String(pList[j] ?? ""));
+}
+
 
       // ====== 4) Ricomponi output in ordine ======
       let out = outputParts
