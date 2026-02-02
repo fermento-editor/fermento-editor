@@ -12,6 +12,20 @@ import fs from "fs";
 import fsPromises from "fs/promises";
 import { fileURLToPath } from "url";
 import { applyTypography } from "./typography/applyTypography.js";
+import { redis } from "./redis.js";
+
+if (redis) {
+  redis.ping()
+    .then(() => {
+      console.log("✅ Redis connesso correttamente");
+    })
+    .catch(err => {
+      console.error("❌ Redis NON connesso:", err.message);
+    });
+} else {
+  console.warn("⚠️ REDIS_URL non definita");
+}
+
 
 dotenv.config();
 

@@ -12,6 +12,7 @@
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
     "html-to-docx": "^1.8.0",
+    "ioredis": "^5.9.2",
     "mammoth": "^1.11.0",
     "multer": "^2.0.2",
     "node-html-parser": "^7.0.1",
