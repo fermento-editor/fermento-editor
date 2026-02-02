@@ -1,6 +1,4 @@
 // server/index.js - Fermento Editor backend (DOCX + PDF + AI)
-// SINGLE SOURCE OF TRUTH per JOB: Redis
-// Endpoint JOB unici: /api/ai-job/start | /api/ai-job/status | /api/ai-job/result
 
 import express from "express";
 import cors from "cors";
@@ -13,44 +11,21 @@ import path from "path";
 import fs from "fs";
 import fsPromises from "fs/promises";
 import { fileURLToPath } from "url";
-import { v4 as uuidv4 } from "uuid";
+import { applyTypography } from "./typography/applyTypography.js";
 
-// ===============================
-// ENV
-// ===============================
 dotenv.config();
 
 // ===============================
-// REDIS (dynamic import dopo dotenv)
-// ===============================
-let redis = null;
-async function initRedis() {
-  try {
-    const mod = await import("./redis.js");
-    redis = mod.redis || null;
-
-    if (redis) {
-      await redis.ping();
-      console.log("✅ Redis connesso correttamente");
-    } else {
-      console.warn("⚠️ REDIS_URL non definita (redis = null)");
-    }
-  } catch (err) {
-    console.error("❌ Errore init Redis:", err?.message || err);
-    redis = null;
-  }
-}
-
-// ===============================
-// CLIENT OPENAI
+//   CLIENT OPENAI
 // ===============================
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
 console.log("OPENAI_API_KEY presente?", !!process.env.OPENAI_API_KEY);
 
 // ===============================
-// APP + CONFIG
+//   PATH E CONFIGURAZIONI BASE
 // ===============================
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -84,7 +59,7 @@ const evaluationsPath = path.join(__dirname, "data", "evaluations.json");
 const marketTopListPath = path.join(__dirname, "data", "marketTopList.json");
 
 // ===============================
-// UTILITY: LETTURA PROMPT ESTERNI
+//   UTILITY: LETTURA PROMPT ESTERNI
 // ===============================
 function readPromptFile(filename) {
   const full = path.join(promptsDir, filename);
@@ -97,7 +72,7 @@ function readPromptFile(filename) {
 }
 
 // ===============================
-// UTILITY: LETTURA/SCRITTURA VALUTAZIONI
+//   UTILITY: LETTURA/SCRITTURA VALUTAZIONI
 // ===============================
 async function loadEvaluations() {
   try {
@@ -113,14 +88,18 @@ async function loadEvaluations() {
 async function saveEvaluations(list) {
   try {
     await fsPromises.mkdir(path.dirname(evaluationsPath), { recursive: true });
-    await fsPromises.writeFile(evaluationsPath, JSON.stringify(list, null, 2), "utf8");
+    await fsPromises.writeFile(
+      evaluationsPath,
+      JSON.stringify(list, null, 2),
+      "utf8"
+    );
   } catch (err) {
     console.error("Errore saveEvaluations:", err);
   }
 }
 
 // ===============================
-// UTILITY: LISTA TOP BESTSELLER (MERCATO) - opzionale
+//   UTILITY: LISTA TOP BESTSELLER (MERCATO) - opzionale
 // ===============================
 async function loadMarketTopList() {
   try {
@@ -135,7 +114,7 @@ async function loadMarketTopList() {
 }
 
 // ===============================
-// FILTRO TIPOGRAFICO (leggero)
+//   FILTRO TIPOGRAFICO (leggero)
 // ===============================
 function applyTypographicFixes(text) {
   if (!text) return text;
@@ -196,6 +175,8 @@ function splitParagraphOnBr(pHtml) {
   if (!/<br\s*\/?>/i.test(inner)) return [pHtml];
 
   const parts = inner.split(/<br\s*\/?>/i);
+
+  // manteniamo anche righe vuote
   return parts.map((part) => `<p>${part}</p>`);
 }
 
@@ -209,7 +190,6 @@ function isChapterTitleParagraph(pHtml) {
 function looksLikeDocxHtml(text) {
   return typeof text === "string" && /<p\b/i.test(text);
 }
-
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, "&amp;")
@@ -222,30 +202,39 @@ function escapeHtml(str) {
 // Ripulisce output AI: deve diventare ESATTAMENTE un <p>...</p>
 function normalizeAiParagraph(aiText) {
   const s = String(aiText || "").trim();
+
+  // togli eventuali recinzioni
   const noFences = s.replace(/```[\s\S]*?```/g, "").trim();
+
+  // prendi il primo <p>...</p>
   const m = noFences.match(/<p\b[^>]*>[\s\S]*?<\/p>/i);
   if (m) return m[0].trim();
+
+  // fallback: incapsula (meglio che perdere struttura)
   return `<p>${noFences}</p>`;
 }
 
 // ===============================
-// UPLOAD DOCX/PDF
+//   UPLOAD DOCX/PDF
 // ===============================
 async function handleUpload(req, res) {
   try {
     if (!req.file) {
-      return res.status(400).json({ success: false, error: "Nessun file caricato" });
+      return res.status(400).json({
+        success: false,
+        error: "Nessun file caricato",
+      });
     }
 
     const ext = path.extname(req.file.originalname).toLowerCase();
 
-    // PDF → testo semplice
+    // ====== PDF → testo semplice ======
     if (ext === ".pdf") {
       try {
         const buffer = await fsPromises.readFile(req.file.path);
-        const pdfModule = await import("pdf-parse-fixed");
 
-        const pdfParseFn =
+        const pdfModule = await import("pdf-parse-fixed");
+        let pdfParseFn =
           typeof pdfModule.default === "function"
             ? pdfModule.default
             : typeof pdfModule === "function"
@@ -258,22 +247,35 @@ async function handleUpload(req, res) {
         const text = result.text || "";
 
         await fsPromises.unlink(req.file.path).catch(() => {});
-        return res.json({ success: true, type: "pdf", text });
+
+        return res.json({
+          success: true,
+          type: "pdf",
+          text,
+        });
       } catch (err) {
         console.error("Errore parsing PDF:", err);
         await fsPromises.unlink(req.file.path).catch(() => {});
-        return res.status(500).json({ success: false, error: "Errore nella lettura del PDF" });
+        return res.status(500).json({
+          success: false,
+          error: "Errore nella lettura del PDF",
+        });
       }
     }
 
-    // DOCX → HTML
+    // ====== DOCX → HTML ======
     if (ext === ".docx") {
       const buffer = await fsPromises.readFile(req.file.path);
       const result = await mammoth.convertToHtml({ buffer });
       const html = result.value || "";
 
       await fsPromises.unlink(req.file.path).catch(() => {});
-      return res.json({ success: true, type: "docx", text: html });
+
+      return res.json({
+        success: true,
+        type: "docx",
+        text: html,
+      });
     }
 
     await fsPromises.unlink(req.file.path).catch(() => {});
@@ -283,7 +285,10 @@ async function handleUpload(req, res) {
     });
   } catch (err) {
     console.error("Errore upload DOCX/PDF:", err);
-    return res.status(500).json({ success: false, error: "Errore durante l'import del file" });
+    return res.status(500).json({
+      success: false,
+      error: "Errore durante l'import del file",
+    });
   }
 }
 
@@ -292,235 +297,17 @@ app.post("/api/import", upload.single("file"), handleUpload);
 app.post("/api/upload", upload.single("file"), handleUpload);
 
 // ===============================
-// JOB API (Redis) — single source of truth
-// Endpoint unici: /api/ai-job/start | /api/ai-job/status | /api/ai-job/result
-// ===============================
-const JOB_TTL_SECONDS = 60 * 60; // 1 ora
-
-async function setJob(jobId, fields) {
-  if (!redis) throw new Error("Redis non configurato");
-  const jobKey = `job:${jobId}`;
-  await redis.hset(jobKey, fields);
-  await redis.expire(jobKey, JOB_TTL_SECONDS);
-}
-
-async function getJob(jobId) {
-  if (!redis) return null;
-  const jobKey = `job:${jobId}`;
-  const data = await redis.hgetall(jobKey);
-  return data && Object.keys(data).length ? data : null;
-}
-
-// CORE JOB: esegue la richiesta lunga chiamando internamente /api/ai (anti-timeout)
-async function processJobReal(jobId) {
-  try {
-    await setJob(jobId, { status: "running", progress: "0.01" });
-
-    const rawPayload = await redis.get(`job:${jobId}:payload`);
-    const body = rawPayload ? JSON.parse(rawPayload) : {};
-
-    const url = `http://127.0.0.1:${PORT}/api/ai`;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body || {}),
-    });
-
-    const data = await resp.json().catch(() => ({}));
-
-    if (!resp.ok || !data?.success) {
-      await setJob(jobId, {
-        status: "error",
-        progress: "1",
-        error: data?.error || `HTTP ${resp.status} ${resp.statusText}`,
-      });
-      return;
-    }
-
-    await redis.set(
-      `job:${jobId}:result`,
-      JSON.stringify(data.result ?? null),
-      "EX",
-      JOB_TTL_SECONDS
-    );
-
-    await setJob(jobId, { status: "done", progress: "1.0" });
-  } catch (e) {
-    try {
-      await setJob(jobId, { status: "error", progress: "1", error: String(e?.message || e) });
-    } catch (_e2) {
-      console.error("❌ processJobReal error:", e?.message || e);
-    }
-  }
-}
-
-// POST /api/ai-job/start
-app.post("/api/ai-job/start", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const jobId = uuidv4();
-    await setJob(jobId, {
-      status: "queued",
-      progress: "0",
-      createdAt: String(Date.now()),
-    });
-
-    await redis.set(
-      `job:${jobId}:payload`,
-      JSON.stringify(req.body || {}),
-      "EX",
-      JOB_TTL_SECONDS
-    );
-
-    setImmediate(() => processJobReal(jobId));
-
-    return res.json({ success: true, jobId });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-// ===============================
-// JOB API (aliases) — compatibilità: query + path param
-// ===============================
-
-// GET /api/ai-job/status?jobId=...
-app.get("/api/ai-job/status", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const { jobId } = req.query || {};
-    const job = await getJob(String(jobId || ""));
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    return res.json({
-      success: true,
-      status: job.status || "unknown",
-      progress: Number(job.progress || 0),
-      total: Number(job.total || 0),
-      error: job.error || null,
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-
-// GET /api/ai-job/:id
-app.get("/api/ai-job/:id", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const job = await getJob(String(req.params.id || ""));
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    return res.json({
-      success: true,
-      id: req.params.id,
-      status: job.status || "unknown",
-      progress: Number(job.progress || 0),
-      error: job.error || null,
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-
-// GET /api/ai-job/result?jobId=...
-app.get("/api/ai-job/result", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const { jobId } = req.query || {};
-    const job = await getJob(String(jobId || ""));
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    if (job.status !== "done") {
-      return res.status(400).json({ success: false, error: "Job non completato", status: job.status });
-    }
-
-    const raw = await redis.get(`job:${String(jobId)}:result`);
-    if (!raw) return res.status(500).json({ success: false, error: "Risultato mancante" });
-
-    return res.json({ success: true, result: JSON.parse(raw) });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-
-// GET /api/ai-job/:id/result
-app.get("/api/ai-job/:id/result", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const jobId = String(req.params.id || "");
-    const job = await getJob(jobId);
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    if (job.status !== "done") {
-      return res.status(400).json({ success: false, error: "Job non completato", status: job.status });
-    }
-
-    const raw = await redis.get(`job:${jobId}:result`);
-    if (!raw) return res.status(500).json({ success: false, error: "Risultato mancante" });
-
-    return res.json({ success: true, result: JSON.parse(raw) });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-
-// GET /api/ai-job/status?jobId=...
-app.get("/api/ai-job/status", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const { jobId } = req.query || {};
-    const job = await getJob(String(jobId || ""));
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    return res.json({
-      success: true,
-      status: job.status || "unknown",
-      progress: Number(job.progress || 0),
-      total: Number(job.total || 0),
-      error: job.error || null,
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-
-// GET /api/ai-job/result?jobId=...
-app.get("/api/ai-job/result", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const { jobId } = req.query || {};
-    const job = await getJob(String(jobId || ""));
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    if (job.status !== "done") {
-      return res.status(400).json({ success: false, error: "Job non completato", status: job.status });
-    }
-
-    const raw = await redis.get(`job:${String(jobId)}:result`);
-    if (!raw) return res.status(500).json({ success: false, error: "Risultato mancante" });
-
-    return res.json({ success: true, result: JSON.parse(raw) });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-
-// ===============================
-// EXPORT HTML -> DOCX
+//   EXPORT HTML -> DOCX
 // ===============================
 app.post("/api/export-docx", async (req, res) => {
   try {
     const { html } = req.body;
 
     if (!html || typeof html !== "string") {
-      return res.status(400).json({ success: false, error: "html mancante nel body" });
+      return res.status(400).json({
+        success: false,
+        error: "html mancante nel body",
+      });
     }
 
     let safeHtml = html;
@@ -538,7 +325,7 @@ app.post("/api/export-docx", async (req, res) => {
 
     const docxBuffer = await htmlToDocx(wrappedHtml, null, {
       font: "Times New Roman",
-      fontSize: 24,
+      fontSize: 24, // 12 pt
     });
 
     res.setHeader(
@@ -550,19 +337,25 @@ app.post("/api/export-docx", async (req, res) => {
     return res.end(docxBuffer);
   } catch (err) {
     console.error("Errore /api/export-docx:", err);
-    return res.status(500).json({ success: false, error: "Errore durante la conversione in DOCX" });
+    return res.status(500).json({
+      success: false,
+      error: "Errore durante la conversione in DOCX",
+    });
   }
 });
 
 // ===============================
-// DOCX PRESERVE (multipart) - alias operativo
+//   DOCX PRESERVE (multipart) - alias operativo
 // ===============================
 app.post("/api/docx/editing-preserve", upload.single("file"), async (req, res) => {
   try {
     const html = req.body?.html;
 
     if (!html || typeof html !== "string") {
-      return res.status(400).json({ success: false, error: "html mancante nel body (multipart)" });
+      return res.status(400).json({
+        success: false,
+        error: "html mancante nel body (multipart)",
+      });
     }
 
     let safeHtml = html;
@@ -580,7 +373,7 @@ app.post("/api/docx/editing-preserve", upload.single("file"), async (req, res) =
 
     const docxBuffer = await htmlToDocx(wrappedHtml, null, {
       font: "Times New Roman",
-      fontSize: 24,
+      fontSize: 24, // 12 pt
     });
 
     res.setHeader(
@@ -592,12 +385,15 @@ app.post("/api/docx/editing-preserve", upload.single("file"), async (req, res) =
     return res.end(docxBuffer);
   } catch (err) {
     console.error("Errore /api/docx/editing-preserve:", err);
-    return res.status(500).json({ success: false, error: "Errore durante la conversione in DOCX (preserve)" });
+    return res.status(500).json({
+      success: false,
+      error: "Errore durante la conversione in DOCX (preserve)",
+    });
   }
 });
 
 // ===========================
-// API VALUTAZIONI (GET / POST / DELETE / DOCX) — MANTENUTE
+//  API VALUTAZIONI (GET / POST / DELETE / DOCX) — MANTENUTE
 // ===========================
 app.get("/api/evaluations", async (req, res) => {
   try {
@@ -609,10 +405,16 @@ app.get("/api/evaluations", async (req, res) => {
       filtered = list.filter((ev) => !ev.projectId || ev.projectId === projectId);
     }
 
-    return res.json({ success: true, evaluations: filtered });
+    return res.json({
+      success: true,
+      evaluations: filtered,
+    });
   } catch (err) {
     console.error("Errore GET /api/evaluations:", err);
-    return res.status(500).json({ success: false, error: "Errore nel caricamento delle valutazioni" });
+    return res.status(500).json({
+      success: false,
+      error: "Errore nel caricamento delle valutazioni",
+    });
   }
 });
 
@@ -621,11 +423,23 @@ app.get("/api/evaluations/:id", async (req, res) => {
     const list = await loadEvaluations();
     const found = list.find((v) => v.id === req.params.id);
 
-    if (!found) return res.status(404).json({ success: false, error: "Valutazione non trovata" });
-    return res.json({ success: true, evaluation: found });
+    if (!found) {
+      return res.status(404).json({
+        success: false,
+        error: "Valutazione non trovata",
+      });
+    }
+
+    return res.json({
+      success: true,
+      evaluation: found,
+    });
   } catch (err) {
     console.error("Errore GET /api/evaluations/:id:", err);
-    return res.status(500).json({ success: false, error: "Errore lettura valutazione" });
+    return res.status(500).json({
+      success: false,
+      error: "Errore lettura valutazione",
+    });
   }
 });
 
@@ -634,7 +448,12 @@ app.get("/api/evaluations/:id/docx", async (req, res) => {
     const list = await loadEvaluations();
     const found = list.find((v) => v.id === req.params.id);
 
-    if (!found) return res.status(404).json({ success: false, error: "Valutazione non trovata" });
+    if (!found) {
+      return res.status(404).json({
+        success: false,
+        error: "Valutazione non trovata",
+      });
+    }
 
     const html = found.html || found.evaluationText || "";
 
@@ -657,14 +476,21 @@ app.get("/api/evaluations/:id/docx", async (req, res) => {
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     );
-
-    const safeTitle = (found.title || "valutazione").replace(/[^a-zA-Z0-9-_ ]/g, "").slice(0, 50);
-    res.setHeader("Content-Disposition", `attachment; filename="${safeTitle || "valutazione"}.docx"`);
+    const safeTitle = (found.title || "valutazione")
+      .replace(/[^a-zA-Z0-9-_ ]/g, "")
+      .slice(0, 50);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${safeTitle || "valutazione"}.docx"`
+    );
 
     return res.end(docxBuffer);
   } catch (err) {
     console.error("Errore GET /api/evaluations/:id/docx:", err);
-    return res.status(500).json({ success: false, error: "Errore export DOCX valutazione" });
+    return res.status(500).json({
+      success: false,
+      error: "Errore export DOCX valutazione",
+    });
   }
 });
 
@@ -696,10 +522,16 @@ app.post("/api/evaluations", async (req, res) => {
     list.push(newEval);
     await saveEvaluations(list);
 
-    return res.json({ success: true, evaluation: newEval });
+    return res.json({
+      success: true,
+      evaluation: newEval,
+    });
   } catch (err) {
     console.error("Errore POST /api/evaluations:", err);
-    return res.status(500).json({ success: false, error: "Errore nel salvataggio della valutazione" });
+    return res.status(500).json({
+      success: false,
+      error: "Errore nel salvataggio della valutazione",
+    });
   }
 });
 
@@ -714,162 +546,15 @@ app.delete("/api/evaluations/:id", async (req, res) => {
     return res.json({ success: true });
   } catch (err) {
     console.error("Errore DELETE /api/evaluations/:id:", err);
-    return res.status(500).json({ success: false, error: "Errore nella cancellazione della valutazione" });
+    return res.status(500).json({
+      success: false,
+      error: "Errore nella cancellazione della valutazione",
+    });
   }
 });
 
 // ===============================
-// CORE: Editing Fermento (riusabile per job)
-// ===============================
-async function runEditingFermento({
-  openai,
-  systemForChunk,
-  batches,
-  outputParts,
-  originalParagraphs,
-  normalizedParagraphs,
-}) {
-  console.log("EDITING BATCHES:", batches.length);
-
-  async function editSingleParagraph(pHtml) {
-    const userMsg = [
-      "Devi riscrivere SOLO questo singolo paragrafo.",
-      "VINCOLI:",
-      "- Devi restituire ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
-      "- Vietato creare più paragrafi o fonderlo con altri.",
-      "- Vietato aggiungere prefazioni o commenti.",
-      "- Tag ammessi: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
-      "",
-      "PARAGRAFO INPUT:",
-      pHtml,
-    ].join("\n");
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      messages: [
-        { role: "system", content: systemForChunk },
-        { role: "user", content: userMsg },
-      ],
-    });
-
-    const ai = completion.choices?.[0]?.message?.content?.trim() || "";
-    return normalizeAiParagraph(ai);
-  }
-
-  const CONCURRENCY = 1;
-
-  async function processOneBatch(b) {
-    const batch = batches[b];
-    const batchInput = batch.map((x) => x.pHtml).join("\n");
-
-    const userMsg = [
-      "Devi riscrivere i paragrafi qui sotto.",
-      "VINCOLI ASSOLUTI:",
-      `- Devi restituire ESATTAMENTE ${batch.length} elementi in un JSON array (solo JSON, nessun altro testo).`,
-      "- Ogni elemento dell'array deve essere una stringa che contiene ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
-      "- Devi mantenere ESATTAMENTE lo stesso ordine degli input.",
-      "- Vietato unire o spezzare paragrafi.",
-      "- Vietato aggiungere prefazioni, commenti, markdown o backticks.",
-      "- Tag ammessi dentro i <p>: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
-      "",
-      "INPUT (paragrafi <p>...</p> uno dopo l'altro):",
-      batchInput,
-    ].join("\n");
-
-    console.log(`EDITING batch ${b + 1}/${batches.length} - paras: ${batch.length}`);
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      messages: [
-        { role: "system", content: systemForChunk },
-        { role: "user", content: userMsg },
-      ],
-    });
-
-    let aiText = completion.choices?.[0]?.message?.content?.trim() || "";
-    aiText = aiText.replace(/^```(?:json)?\s*/i, "").replace(/```[\s\r\n]*$/i, "").trim();
-
-    let pList = [];
-    try {
-      const parsed = JSON.parse(aiText);
-      if (Array.isArray(parsed)) pList = parsed;
-    } catch (_e) {
-      pList = [];
-    }
-
-    if (pList.length !== batch.length) {
-      console.log("WARN batch mismatch -> retry once. expected:", batch.length, "got:", pList.length);
-
-      const retryMsg = [
-        "ERRORE: prima non hai restituito il JSON corretto o il numero corretto di elementi.",
-        `Devi restituire SOLO un JSON array di lunghezza ESATTA ${batch.length}.`,
-        "Ogni elemento deve essere una stringa con ESATTAMENTE UN SOLO <p>...</p>.",
-        "Nessun altro testo. Nessun markdown. Nessun backtick.",
-        "",
-        "INPUT:",
-        batchInput,
-      ].join("\n");
-
-      const retry = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        messages: [
-          { role: "system", content: systemForChunk },
-          { role: "user", content: retryMsg },
-        ],
-      });
-
-      let retryText = retry.choices?.[0]?.message?.content?.trim() || "";
-      retryText = retryText.replace(/^```(?:json)?\s*/i, "").replace(/```[\s\r\n]*$/i, "").trim();
-
-      pList = [];
-      try {
-        const parsedRetry = JSON.parse(retryText);
-        if (Array.isArray(parsedRetry)) pList = parsedRetry;
-      } catch (_e2) {
-        pList = [];
-      }
-    }
-
-    if (pList.length !== batch.length) {
-      console.log("ERROR batch mismatch persists -> fallback single-paragraph.");
-      for (const item of batch) {
-        const pOut = await editSingleParagraph(item.pHtml);
-        outputParts[item.idx] = pOut;
-      }
-      return;
-    }
-
-    for (let j = 0; j < batch.length; j++) {
-      outputParts[batch[j].idx] = normalizeAiParagraph(String(pList[j] ?? ""));
-    }
-  }
-
-  let next = 0;
-  async function worker() {
-    while (next < batches.length) {
-      const b = next++;
-      await processOneBatch(b);
-    }
-  }
-  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
-
-  const out = outputParts.map((p) => (p == null ? "<p></p>" : p)).join("\n");
-
-  return {
-    out: out.trim(),
-    meta: {
-      docxFlow: true,
-      paragraphsOriginal: originalParagraphs.length,
-      paragraphsNormalized: normalizedParagraphs.length,
-    },
-  };
-}
-
-// ===============================
-// API AI PRINCIPALE
+//   API AI PRINCIPALE
 // ===============================
 app.post("/api/ai", async (req, res) => {
   console.log(">>> /api/ai chiamata, mode:", req.body?.mode);
@@ -886,27 +571,34 @@ app.post("/api/ai", async (req, res) => {
       projectId = null,
       useEvaluationForEditing = false,
       currentEvaluation = "",
-      graphicProfile = "Narrativa contemporanea", // compat
+      // compat col frontend
+      graphicProfile = "Narrativa contemporanea",
     } = req.body || {};
 
-    // TESTO EFFETTIVO: primo campo non vuoto
+    // ✅ TESTO EFFETTIVO: prendiamo il primo campo non vuoto
     let textEffective = typeof text === "string" ? text : String(text || "");
     if (!textEffective.trim()) {
       const a = typeof inputText === "string" ? inputText : String(inputText || "");
       const b = typeof html === "string" ? html : String(html || "");
       const c = typeof inputHtml === "string" ? inputHtml : String(inputHtml || "");
-      textEffective = a?.trim() ? a : b?.trim() ? b : c?.trim() ? c : "";
+      textEffective = (a && a.trim()) ? a : (b && b.trim()) ? b : (c && c.trim()) ? c : "";
     }
 
     console.log("AI textEffective length:", textEffective.length);
 
-    // 1) VALUTAZIONE
+    // ==========================
+    // 1) VALUTAZIONE (PROMPT ESTERNO)
+    // ==========================
     if (mode === "valutazione" || mode === "valutazione-manoscritto") {
       const valutazionePrompt = readPromptFile("valutazione-fermento.txt");
       if (!valutazionePrompt.trim()) {
-        return res.status(500).json({ success: false, error: "Prompt valutazione-fermento.txt mancante o vuoto" });
+        return res.status(500).json({
+          success: false,
+          error: "Prompt valutazione-fermento.txt mancante o vuoto",
+        });
       }
 
+      // opzionale: snippet top list mercato
       let topListSnippet = "";
       try {
         const topList = await loadMarketTopList();
@@ -917,6 +609,7 @@ app.post("/api/ai", async (req, res) => {
         console.error("Errore nel caricamento Top 10 mercato:", err);
       }
 
+      // spezzettiamo in sezioni grandi
       const chunks = chunkText(textEffective, 80000);
       console.log("VALUTAZIONE: numero chunks:", chunks.length);
 
@@ -932,7 +625,10 @@ app.post("/api/ai", async (req, res) => {
           model: "gpt-4o-mini",
           temperature: 0,
           messages: [
-            { role: "system", content: valutazionePrompt + "\n\n[FASE: ANALISI SEZIONE]\n" + sectionHeader },
+            {
+              role: "system",
+              content: valutazionePrompt + "\n\n[FASE: ANALISI SEZIONE]\n" + sectionHeader,
+            },
             { role: "user", content: chunks[i] },
           ],
         });
@@ -957,9 +653,12 @@ app.post("/api/ai", async (req, res) => {
         ],
       });
 
-      const finalText = final.choices?.[0]?.message?.content?.trim() || "Errore nella valutazione finale.";
+      const finalText =
+        final.choices?.[0]?.message?.content?.trim() || "Errore nella valutazione finale.";
+
       const fixedText = applyTypographicFixes(finalText);
 
+      // salviamo nell’archivio valutazioni
       const evaluations = await loadEvaluations();
       const newEval = {
         id: Date.now().toString(),
@@ -972,16 +671,27 @@ app.post("/api/ai", async (req, res) => {
       evaluations.push(newEval);
       await saveEvaluations(evaluations);
 
-      return res.json({ success: true, result: fixedText, savedId: newEval.id });
+      return res.json({
+        success: true,
+        result: fixedText,
+        savedId: newEval.id,
+      });
     }
 
-    // 2) EDITING FERMENTO (DOCX html con <p>)
+    // ==========================
+    // 2) EDITING FERMENTO (PROMPT ESTERNO)
+    //    - SOLO DOCX: paragrafo-per-paragrafo per preservare struttura
+    // ==========================
     if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
       let systemForChunk = readPromptFile("editing-fermento-B.txt");
       if (!systemForChunk.trim()) {
-        return res.status(500).json({ success: false, error: "Prompt editing-fermento-B.txt mancante o vuoto" });
+        return res.status(500).json({
+          success: false,
+          error: "Prompt editing-fermento-B.txt mancante o vuoto",
+        });
       }
 
+      // (opzionale) valutazione dal frontend per guidare editing
       if (useEvaluationForEditing && currentEvaluation && currentEvaluation.trim().length > 0) {
         const evaluationSnippet = currentEvaluation.trim().slice(0, 2000);
         systemForChunk +=
@@ -989,8 +699,10 @@ app.post("/api/ai", async (req, res) => {
           evaluationSnippet;
       }
 
+          // Se non arriva HTML da DOCX, ma arriva testo/paragrafi, ricostruisco HTML minimale <p>...</p>
       let htmlEffective = textEffective;
 
+      // se non è già HTML con <p>, provo a convertirlo da testo (paragrafi separati da righe vuote)
       if (!looksLikeDocxHtml(htmlEffective)) {
         const maybePlainText =
           typeof htmlEffective === "string" &&
@@ -1007,17 +719,25 @@ app.post("/api/ai", async (req, res) => {
         }
       }
 
+      // controllo finale: ora DEVE sembrare HTML da DOCX
       if (!looksLikeDocxHtml(htmlEffective)) {
         return res.status(400).json({
           success: false,
-          error: "Editing-fermento supportato solo su input DOCX (HTML con <p>...). L’input ricevuto non sembra HTML da DOCX.",
+          error:
+            "Editing-fermento supportato solo su input DOCX (HTML con <p>...). L’input ricevuto non sembra HTML da DOCX.",
         });
       }
 
+      // 1) Estrai <p>
       const originalParagraphs = extractParagraphs(htmlEffective);
 
+
+
+      // 2) Normalizza: split su <br> => più <p> (scelta B)
       const normalizedParagraphs = [];
-      for (const p of originalParagraphs) normalizedParagraphs.push(...splitParagraphOnBr(p));
+      for (const p of originalParagraphs) {
+        normalizedParagraphs.push(...splitParagraphOnBr(p));
+      }
 
       console.log(
         "EDITING DOCX FLOW: paragraphs original:",
@@ -1026,34 +746,45 @@ app.post("/api/ai", async (req, res) => {
         normalizedParagraphs.length
       );
 
+      // Ricostruzione output mantenendo ESATTAMENTE l'ordine originale
       const outputParts = new Array(normalizedParagraphs.length).fill(null);
 
-      const BATCH_MAX_PARAS = 10;
-      const BATCH_MAX_CHARS = 9000;
+      // ====== BATCH SETTINGS (anti-timeout) ======
+      const BATCH_MAX_PARAS = 25;      // paragrafi per chiamata
+      const BATCH_MAX_CHARS = 14000;   // limite caratteri per batch (sicurezza)
 
-      const editable = [];
+      // ====== 1) Costruisci lista paragrafi editabili (con indice) ======
+      const editable = []; // { idx, pHtml }
       for (let i = 0; i < normalizedParagraphs.length; i++) {
         const pHtml = normalizedParagraphs[i];
-        const textOnly = stripTagsToText(pHtml);
 
+        // Mantieni paragrafi vuoti (regola A)
+        const textOnly = stripTagsToText(pHtml);
         if (!textOnly) {
           outputParts[i] = "<p></p>";
           continue;
         }
+
+        // Mantieni titoli identici (CAPITOLO X ecc.)
         if (isChapterTitleParagraph(pHtml)) {
           outputParts[i] = `<p>${stripTagsToText(pHtml)}</p>`;
           continue;
         }
+
         editable.push({ idx: i, pHtml });
       }
 
+      // ====== 2) Crea batches ======
       const batches = [];
       let cur = [];
       let curChars = 0;
 
       for (const item of editable) {
         const len = item.pHtml.length;
-        const exceed = cur.length >= BATCH_MAX_PARAS || curChars + len > BATCH_MAX_CHARS;
+
+        const exceed =
+          cur.length >= BATCH_MAX_PARAS ||
+          (curChars + len) > BATCH_MAX_CHARS;
 
         if (exceed && cur.length > 0) {
           batches.push(cur);
@@ -1066,23 +797,140 @@ app.post("/api/ai", async (req, res) => {
       }
       if (cur.length > 0) batches.push(cur);
 
-      const { out, meta } = await runEditingFermento({
-        openai,
-        systemForChunk,
-        batches,
-        outputParts,
-        originalParagraphs,
-        normalizedParagraphs,
-      });
+      console.log("EDITING BATCHES:", batches.length, "editable paragraphs:", editable.length);
 
-      return res.json({ success: true, result: out, meta });
+      // ====== Helper: fallback per-paragrafo (solo se batch fallisce) ======
+      async function editSingleParagraph(pHtml) {
+        const userMsg = [
+          "Devi riscrivere SOLO questo singolo paragrafo.",
+          "VINCOLI:",
+          "- Devi restituire ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
+          "- Vietato creare più paragrafi o fonderlo con altri.",
+          "- Vietato aggiungere prefazioni o commenti.",
+          "- Tag ammessi: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
+          "",
+          "PARAGRAFO INPUT:",
+          pHtml,
+        ].join("\n");
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0,
+          messages: [
+            { role: "system", content: systemForChunk },
+            { role: "user", content: userMsg },
+          ],
+        });
+
+        const ai = completion.choices?.[0]?.message?.content?.trim() || "";
+        return normalizeAiParagraph(ai);
+      }
+
+      // ====== 3) Esegui batches ======
+      for (let b = 0; b < batches.length; b++) {
+        const batch = batches[b];
+        const batchInput = batch.map((x) => x.pHtml).join("\n");
+
+        const userMsg = [
+          "Devi riscrivere i paragrafi qui sotto.",
+          "VINCOLI ASSOLUTI:",
+          `- Devi restituire ESATTAMENTE ${batch.length} paragrafi <p>...</p>, nello stesso ordine.`,
+          "- Vietato unire o spezzare paragrafi.",
+          "- Vietato aggiungere prefazioni o commenti.",
+          "- Tag ammessi: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
+          "",
+          "PARAGRAFI INPUT:",
+          batchInput,
+        ].join("\n");
+
+        console.log(`EDITING batch ${b + 1}/${batches.length} - paras: ${batch.length}`);
+
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0,
+          messages: [
+            { role: "system", content: systemForChunk },
+            { role: "user", content: userMsg },
+          ],
+        });
+
+        const aiText = completion.choices?.[0]?.message?.content?.trim() || "";
+        let pList = extractParagraphs(aiText);
+
+        // Retry 1 volta se mismatch
+        if (pList.length !== batch.length) {
+          console.log(
+            "WARN batch mismatch -> retry once. expected:",
+            batch.length,
+            "got:",
+            pList.length
+          );
+
+          const retryMsg = [
+            "ERRORE: prima non hai restituito il numero corretto di paragrafi.",
+            `Devi restituire ESATTAMENTE ${batch.length} paragrafi <p>...</p>, uno dopo l'altro, senza altro testo.`,
+            "",
+            "PARAGRAFI INPUT:",
+            batchInput,
+          ].join("\n");
+
+          const retry = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            temperature: 0,
+            messages: [
+              { role: "system", content: systemForChunk },
+              { role: "user", content: retryMsg },
+            ],
+          });
+
+          const retryText = retry.choices?.[0]?.message?.content?.trim() || "";
+          pList = extractParagraphs(retryText);
+        }
+
+        // Se ancora mismatch: fallback per-paragrafo (solo per questo batch)
+        if (pList.length !== batch.length) {
+          console.log("ERROR batch mismatch persists -> fallback to single-paragraph for this batch.");
+          for (const item of batch) {
+            const pOut = await editSingleParagraph(item.pHtml);
+            outputParts[item.idx] = pOut;
+          }
+          continue;
+        }
+
+        // OK: assegna ogni paragrafo ESATTAMENTE al suo indice originale
+        for (let j = 0; j < batch.length; j++) {
+          outputParts[batch[j].idx] = normalizeAiParagraph(pList[j]);
+        }
+      }
+
+      // ====== 4) Ricomponi output in ordine ======
+      let out = outputParts
+        .map((p) => (p == null ? "<p></p>" : p))
+        .join("\n");
+
+
+
+      return res.json({
+        success: true,
+        result: out.trim(),
+        meta: {
+          docxFlow: true,
+          paragraphsOriginal: originalParagraphs.length,
+          paragraphsNormalized: normalizedParagraphs.length,
+        },
+      });
     }
 
-    // 3) TRADUZIONE ITA->ENG
+    // ==========================
+    // 3) TRADUZIONE ITA->ENG (PROMPT ESTERNO)
+    // ==========================
     if (mode === "traduzione-it-en") {
       const translationPrompt = readPromptFile("traduzione-it-en.txt");
       if (!translationPrompt.trim()) {
-        return res.status(500).json({ success: false, error: "Prompt traduzione-it-en.txt mancante o vuoto" });
+        return res.status(500).json({
+          success: false,
+          error: "Prompt traduzione-it-en.txt mancante o vuoto",
+        });
       }
 
       const completion = await openai.chat.completions.create({
@@ -1095,35 +943,39 @@ app.post("/api/ai", async (req, res) => {
       });
 
       const aiText =
-        completion.choices?.[0]?.message?.content?.trim() || "Errore: nessun testo generato.";
+        completion.choices?.[0]?.message?.content?.trim() ||
+        "Errore: nessun testo generato.";
 
-      return res.json({ success: true, result: aiText });
+      return res.json({
+        success: true,
+        result: aiText,
+      });
     }
 
-    return res.status(400).json({ success: false, error: `Mode non supportata: ${mode || "(mancante)"}` });
+    // ==========================
+    // MODE NON SUPPORTATA
+    // ==========================
+    return res.status(400).json({
+      success: false,
+      error: `Mode non supportata: ${mode || "(mancante)"}`,
+    });
   } catch (err) {
     console.error("Errore /api/ai:", err);
     let msg = "Errore interno nel server AI";
     if (err.response?.data?.error?.message) msg = err.response.data.error.message;
     else if (err.message) msg = err.message;
 
-    return res.status(500).json({ success: false, error: msg });
+    return res.status(500).json({
+      success: false,
+      error: msg,
+    });
   }
 });
 
 // ===============================
 // AVVIO SERVER
 // ===============================
-async function main() {
-  await initRedis();
-
-  app.listen(PORT, () => {
-    console.log("### FIRMA BACKEND FERMENTO: INDEX.JS MODIFICATO OGGI ###");
-    console.log(`Fermento AI backend in ascolto su http://localhost:${PORT}`);
-  });
-}
-
-main().catch((e) => {
-  console.error("❌ Fatal startup error:", e?.message || e);
-  process.exit(1);
+app.listen(PORT, () => {
+  console.log("### FIRMA BACKEND FERMENTO: INDEX.JS MODIFICATO OGGI ###");
+  console.log(`Fermento AI backend in ascolto su http://localhost:${PORT}`);
 });
