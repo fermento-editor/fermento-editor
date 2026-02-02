@@ -1185,7 +1185,7 @@ app.post("/api/ai", async (req, res) => {
           batches.push(cur);
           cur = [];
           curChars = 0;
-        }
+       }
 
         cur.push(item);
         curChars += len;
