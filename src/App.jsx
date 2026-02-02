@@ -7,7 +7,7 @@ const isLocalHost =
 
 const API_BASE = isLocalHost
   ? "http://localhost:3001"
-   : "https://fermento-editor-backed.onrender.com";
+    : "https://fermento-editor-backed.onrender.com";
 
 const EVAL_STORAGE_KEY = "fermento-editor-evaluations-v1";
 
@@ -204,7 +204,7 @@ if (data.type === "docx") {
   // ===========================
   // CHIAMATA AI (VERSIONE UNIVERSALE)
   // ===========================
-  async function callAi(mode) {
+    async function callAi(mode) {
     if (!inputText.trim()) {
       alert("Inserisci o carica del testo nella colonna di sinistra.");
       return;
@@ -221,17 +221,15 @@ if (data.type === "docx") {
         projectTitle,
         projectAuthor,
         graphicProfile,
-
       };
 
-            // se stiamo facendo editing/correzione, passiamo anche la valutazione
-          const isEditingMode =
+      // se stiamo facendo editing/correzione, passiamo anche la valutazione
+      const isEditingMode =
         mode === "editing-fermento" ||
         mode === "editing" ||
         mode === "editing-default";
 
-
-            if (isEditingMode) {
+      if (isEditingMode) {
         // ✅ compat: il backend usa/useva questo nome
         body.useEvaluationForEditing = useEvalForEditing;
 
@@ -241,33 +239,79 @@ if (data.type === "docx") {
         body.currentEvaluation = useEvalForEditing ? (currentEvaluation || "") : "";
       }
 
-
-      const res = await fetch(`${API_BASE}/api/ai`, {
+      // ✅ invece di chiamare /api/ai direttamente, usiamo la JOB API
+      const startRes = await fetch(`${API_BASE}/api/ai-job/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
 
-
-      if (!res.ok) {
-        let errorText = "";
-        try {
-          errorText = await res.text();
-        } catch (readErr) {
-          console.error("Errore leggendo risposta:", readErr);
-        }
-
-        const message =
-          errorText && errorText.trim().length > 0
-            ? errorText
-            : `${res.status} ${res.statusText}`;
-
-        alert("Errore AI: " + message);
+      const startData = await startRes.json().catch(() => ({}));
+      if (!startRes.ok || !startData?.success || !startData?.jobId) {
+        const msg =
+          startData?.error ||
+          `${startRes.status} ${startRes.statusText}` ||
+          "Errore start job";
+        alert("Errore AI: " + msg);
         return;
       }
 
-      const data = await res.json();
-      console.log("Risposta AI dal backend:", data);
+      const jobId = startData.jobId;
+
+      // Poll status finché non è done/error (con timeout)
+      let status = "running";
+      let lastError = "";
+
+      for (let attempts = 0; attempts < 2400; attempts++) { // ~60 min
+        await new Promise((r) => setTimeout(r, 1500));
+
+        const stRes = await fetch(
+          `${API_BASE}/api/ai-job/status?jobId=${encodeURIComponent(jobId)}`
+        );
+
+        const stData = await stRes.json().catch(() => ({}));
+        if (!stRes.ok || !stData?.success) {
+          const msg =
+            stData?.error ||
+            `${stRes.status} ${stRes.statusText}` ||
+            "Errore status job";
+          alert("Errore AI: " + msg);
+          return;
+        }
+
+        status = stData.status || "running";
+        lastError = stData.error || "";
+
+        if (status === "error") {
+          alert("Errore AI: " + (lastError || "Job in errore"));
+          return;
+        }
+
+        if (status === "done") break;
+      }
+
+      if (status !== "done") {
+        alert("Errore AI: timeout job (non completato).");
+        return;
+      }
+
+      // Done -> prendi risultato
+      const outRes = await fetch(
+        `${API_BASE}/api/ai-job/result?jobId=${encodeURIComponent(jobId)}`
+      );
+
+      const outData = await outRes.json().catch(() => ({}));
+      if (!outRes.ok || !outData?.success) {
+        const msg =
+          outData?.error ||
+          `${outRes.status} ${outRes.statusText}` ||
+          "Errore result job";
+        alert("Errore AI: " + msg);
+        return;
+      }
+
+      const data = outData; // { success:true, result: "...", meta?... }
+      console.log("Risposta AI dal backend (JOB):", data);
 
       let output =
         data.result ||
@@ -283,36 +327,28 @@ if (data.type === "docx") {
         output = JSON.stringify(data, null, 2);
       }
 
-      // 🔴 QUI RISOLVIAMO IL PROBLEMA:
-      // - se è una VALUTAZIONE, scriviamo nella colonna DESTRA
-      // - altrimenti nella colonna CENTRALE
-     if (mode === "valutazione-manoscritto") {
-  setCurrentEvaluation(output);
-  // opzionale: pulisco il centro per evitare confusione
-  // setOutputText("");
-} else {
-  setOutputText(output);
+      // valutazione a destra, altro al centro
+      if (mode === "valutazione-manoscritto") {
+        setCurrentEvaluation(output);
+      } else {
+        setOutputText(output);
 
-  const isHtml = /<\/?(p|strong|em|ul|ol|li|h2|h3|br)\b/i.test(output);
+        const isHtml = /<\/?(p|strong|em|ul|ol|li|h2|h3|br)\b/i.test(output);
 
-  if (isHtml) {
-    // se AI ha già restituito HTML, lo usiamo così com'è
-    setOutputHtml(output);
-  } else {
-   // se AI restituisce testo "pulito", lo convertiamo in HTML rich (paragrafi + liste + bold/italic)
-    setOutputHtml(textToHtmlRich(output));
-
-  }
-}
-
-
+        if (isHtml) {
+          setOutputHtml(output);
+        } else {
+          setOutputHtml(textToHtmlRich(output));
+        }
+      }
     } catch (err) {
       console.error("Errore chiamata AI:", err);
-      alert("Errore nella chiamata AI: " + err.message);
+      alert("Errore nella chiamata AI: " + (err?.message || String(err)));
     } finally {
       setIsAiLoading(false);
     }
   }
+
 
   // ===========================
   // EXPORT DOCX TESTO
