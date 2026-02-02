@@ -13,6 +13,8 @@ import fsPromises from "fs/promises";
 import { fileURLToPath } from "url";
 import { applyTypography } from "./typography/applyTypography.js";
 import { redis } from "./redis.js";
+import { v4 as uuidv4 } from "uuid";
+
 
 if (redis) {
   redis.ping()
@@ -309,6 +311,117 @@ async function handleUpload(req, res) {
 app.post("/api/import-docx", upload.single("file"), handleUpload);
 app.post("/api/import", upload.single("file"), handleUpload);
 app.post("/api/upload", upload.single("file"), handleUpload);
+
+// ===============================
+// JOB API (persistente su Redis)
+// ===============================
+const JOB_TTL_SECONDS = 60 * 60; // 1 ora
+
+async function setJob(jobId, fields) {
+  const jobKey = `job:${jobId}`;
+  await redis.hset(jobKey, fields);
+  await redis.expire(jobKey, JOB_TTL_SECONDS);
+}
+
+async function getJob(jobId) {
+  const jobKey = `job:${jobId}`;
+  const data = await redis.hgetall(jobKey);
+  return data && Object.keys(data).length ? data : null;
+}
+
+// Worker "finto" (per test pipeline)
+async function processJobFake(jobId) {
+  try {
+    await setJob(jobId, { status: "running", progress: "0.05" });
+
+    await new Promise(r => setTimeout(r, 1200));
+    await setJob(jobId, { progress: "0.60" });
+
+    await new Promise(r => setTimeout(r, 1200));
+    await setJob(jobId, { progress: "0.95" });
+
+    await redis.set(
+      `job:${jobId}:result`,
+      JSON.stringify({ ok: true, message: "FAKE RESULT (pipeline OK)" }),
+      "EX",
+      JOB_TTL_SECONDS
+    );
+
+    await setJob(jobId, { status: "done", progress: "1.0" });
+  } catch (e) {
+    await setJob(jobId, { status: "error", error: String(e?.message || e) });
+  }
+}
+
+// 1) Crea job
+app.post("/api/ai-job", async (req, res) => {
+  try {
+    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
+
+    const jobId = uuidv4();
+
+    await setJob(jobId, {
+      status: "queued",
+      progress: "0",
+      createdAt: String(Date.now()),
+    });
+
+    await redis.set(
+      `job:${jobId}:payload`,
+      JSON.stringify(req.body || {}),
+      "EX",
+      JOB_TTL_SECONDS
+    );
+
+    setImmediate(() => processJobFake(jobId));
+
+    return res.json({ success: true, jobId });
+  } catch (e) {
+    return res.status(500).json({ success: false, error: String(e?.message || e) });
+  }
+});
+
+// 2) Stato job
+app.get("/api/ai-job/:id", async (req, res) => {
+  try {
+    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
+
+    const job = await getJob(req.params.id);
+    if (!job) return res.status(404).json({ success: false, error: "Job non trovato" });
+
+    return res.json({
+      success: true,
+      id: req.params.id,
+      status: job.status || "unknown",
+      progress: Number(job.progress || 0),
+      error: job.error || null,
+    });
+  } catch (e) {
+    return res.status(500).json({ success: false, error: String(e?.message || e) });
+  }
+});
+
+// 3) Risultato job
+app.get("/api/ai-job/:id/result", async (req, res) => {
+  try {
+    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
+
+    const job = await getJob(req.params.id);
+    if (!job) return res.status(404).json({ success: false, error: "Job non trovato" });
+
+    if (job.status !== "done") {
+      return res.status(409).json({ success: false, error: "Job non completato", status: job.status });
+    }
+
+    const raw = await redis.get(`job:${req.params.id}:result`);
+    if (!raw) return res.status(500).json({ success: false, error: "Risultato mancante" });
+
+    return res.json({ success: true, result: JSON.parse(raw) });
+  } catch (e) {
+    return res.status(500).json({ success: false, error: String(e?.message || e) });
+  }
+});
+
 
 // ===============================
 //   EXPORT HTML -> DOCX
