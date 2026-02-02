@@ -311,7 +311,7 @@ async function getJob(jobId) {
   return data && Object.keys(data).length ? data : null;
 }
 
-// CORE JOB: esegue la richiesta lunga chiamando internamente /api/ai (anti-timeout)
+// CORE JOB: esegue la richiesta lunga SENZA chiamare via HTTP /api/ai (anti-timeout)
 async function processJobReal(jobId) {
   try {
     await setJob(jobId, { status: "running", progress: "0.01" });
@@ -319,27 +319,12 @@ async function processJobReal(jobId) {
     const rawPayload = await redis.get(`job:${jobId}:payload`);
     const body = rawPayload ? JSON.parse(rawPayload) : {};
 
-    const url = `http://127.0.0.1:${PORT}/api/ai`;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body || {}),
-    });
-
-    const data = await resp.json().catch(() => ({}));
-
-    if (!resp.ok || !data?.success) {
-      await setJob(jobId, {
-        status: "error",
-        progress: "1",
-        error: data?.error || `HTTP ${resp.status} ${resp.statusText}`,
-      });
-      return;
-    }
+    // ✅ chiamata diretta alla logica AI (no fetch interno)
+    const result = await runAiCore(body);
 
     await redis.set(
       `job:${jobId}:result`,
-      JSON.stringify(data.result ?? null),
+      JSON.stringify(result ?? null),
       "EX",
       JOB_TTL_SECONDS
     );
@@ -347,12 +332,17 @@ async function processJobReal(jobId) {
     await setJob(jobId, { status: "done", progress: "1.0" });
   } catch (e) {
     try {
-      await setJob(jobId, { status: "error", progress: "1", error: String(e?.message || e) });
+      await setJob(jobId, {
+        status: "error",
+        progress: "1",
+        error: String(e?.message || e),
+      });
     } catch (_e2) {
       console.error("❌ processJobReal error:", e?.message || e);
     }
   }
 }
+
 
 // POST /api/ai-job/start
 app.post("/api/ai-job/start", async (req, res) => {
@@ -469,48 +459,7 @@ app.get("/api/ai-job/:id/result", async (req, res) => {
   }
 });
 
-// GET /api/ai-job/status?jobId=...
-app.get("/api/ai-job/status", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
 
-    const { jobId } = req.query || {};
-    const job = await getJob(String(jobId || ""));
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    return res.json({
-      success: true,
-      status: job.status || "unknown",
-      progress: Number(job.progress || 0),
-      total: Number(job.total || 0),
-      error: job.error || null,
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-
-// GET /api/ai-job/result?jobId=...
-app.get("/api/ai-job/result", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const { jobId } = req.query || {};
-    const job = await getJob(String(jobId || ""));
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    if (job.status !== "done") {
-      return res.status(400).json({ success: false, error: "Job non completato", status: job.status });
-    }
-
-    const raw = await redis.get(`job:${String(jobId)}:result`);
-    if (!raw) return res.status(500).json({ success: false, error: "Risultato mancante" });
-
-    return res.json({ success: true, result: JSON.parse(raw) });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
 
 // ===============================
 // EXPORT HTML -> DOCX
@@ -867,6 +816,236 @@ async function runEditingFermento({
     },
   };
 }
+
+// ===============================
+// CORE AI (riusabile per job: evita fetch interno)
+// ===============================
+async function runAiCore(body) {
+  // Replica minima della parte iniziale di /api/ai:
+  const {
+    text = "",
+    inputText = "",
+    html = "",
+    inputHtml = "",
+    mode,
+    projectTitle = "",
+    projectAuthor = "",
+    projectId = null,
+    useEvaluationForEditing = false,
+    currentEvaluation = "",
+    graphicProfile = "Narrativa contemporanea",
+  } = body || {};
+
+  // TESTO EFFETTIVO: primo campo non vuoto
+  let textEffective = typeof text === "string" ? text : String(text || "");
+  if (!textEffective.trim()) {
+    const a = typeof inputText === "string" ? inputText : String(inputText || "");
+    const b = typeof html === "string" ? html : String(html || "");
+    const c = typeof inputHtml === "string" ? inputHtml : String(inputHtml || "");
+    textEffective = a?.trim() ? a : b?.trim() ? b : c?.trim() ? c : "";
+  }
+
+    // 1) VALUTAZIONE
+  if (mode === "valutazione" || mode === "valutazione-manoscritto") {
+    const valutazionePrompt = readPromptFile("valutazione-fermento.txt");
+    if (!valutazionePrompt.trim()) {
+      throw new Error("Prompt valutazione-fermento.txt mancante o vuoto");
+    }
+
+    let topListSnippet = "";
+    try {
+      const topList = await loadMarketTopList();
+      if (Array.isArray(topList) && topList.length > 0) {
+        topListSnippet = JSON.stringify(topList).slice(0, 15000);
+      }
+    } catch (err) {
+      console.error("Errore nel caricamento Top 10 mercato:", err);
+    }
+
+    const chunks = chunkText(textEffective, 80000);
+    console.log("VALUTAZIONE (job): numero chunks:", chunks.length);
+
+    const partialAnalyses = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const sectionHeader =
+        `SEZIONE ${i + 1}/${chunks.length}\n` +
+        `Titolo: ${projectTitle || "Titolo mancante"}\n` +
+        `Autore: ${projectAuthor || "Autore mancante"}\n`;
+
+      const p = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          { role: "system", content: valutazionePrompt + "\n\n[FASE: ANALISI SEZIONE]\n" + sectionHeader },
+          { role: "user", content: chunks[i] },
+        ],
+      });
+
+      partialAnalyses.push(p.choices?.[0]?.message?.content?.trim() || "");
+    }
+
+    const synthesisUser =
+      `DATI:\n` +
+      `Titolo: ${projectTitle || "Titolo mancante"}\n` +
+      `Autore: ${projectAuthor || "Autore mancante"}\n\n` +
+      (topListSnippet ? `DATI DI MERCATO (JSON):\n${topListSnippet}\n\n` : "") +
+      `ANALISI PARZIALI:\n` +
+      partialAnalyses.join("\n\n--- SEZIONE ---\n\n");
+
+    const final = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        { role: "system", content: valutazionePrompt + "\n\n[FASE: SINTESI FINALE]" },
+        { role: "user", content: synthesisUser },
+      ],
+    });
+
+    const finalText = final.choices?.[0]?.message?.content?.trim() || "Errore nella valutazione finale.";
+    const fixedText = applyTypographicFixes(finalText);
+
+    const evaluations = await loadEvaluations();
+    const newEval = {
+      id: Date.now().toString(),
+      projectId: projectId || null,
+      title: projectTitle || "Titolo mancante",
+      author: projectAuthor || "Autore mancante",
+      date: new Date().toISOString(),
+      html: fixedText,
+    };
+    evaluations.push(newEval);
+    await saveEvaluations(evaluations);
+
+    // NB: per i job salviamo SOLO "result" (come faceva il fetch interno prima)
+    return fixedText;
+  }
+
+  // 2) EDITING FERMENTO
+  if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
+    let systemForChunk = readPromptFile("editing-fermento-B.txt");
+    if (!systemForChunk.trim()) {
+      throw new Error("Prompt editing-fermento-B.txt mancante o vuoto");
+    }
+
+    if (useEvaluationForEditing && currentEvaluation && currentEvaluation.trim().length > 0) {
+      const evaluationSnippet = currentEvaluation.trim().slice(0, 2000);
+      systemForChunk +=
+        "\n\nISTRUZIONI AGGIUNTIVE (OBBLIGATORIE): applica prioritariamente questo estratto di VALUTAZIONE EDITORIALE:\n\n" +
+        evaluationSnippet;
+    }
+
+    let htmlEffective = textEffective;
+
+    if (!looksLikeDocxHtml(htmlEffective)) {
+      const maybePlainText =
+        typeof htmlEffective === "string" &&
+        htmlEffective.trim().length > 0 &&
+        !htmlEffective.includes("<p");
+
+      if (maybePlainText) {
+        const paragraphs = htmlEffective
+          .split(/\r?\n\s*\r?\n|\r?\n{2,}/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+        htmlEffective = paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join("\n");
+      }
+    }
+
+    if (!looksLikeDocxHtml(htmlEffective)) {
+      throw new Error("Editing-fermento supportato solo su input DOCX (HTML con <p>...). Input non valido.");
+    }
+
+    const originalParagraphs = extractParagraphs(htmlEffective);
+
+    const normalizedParagraphs = [];
+    for (const p of originalParagraphs) normalizedParagraphs.push(...splitParagraphOnBr(p));
+
+    console.log(
+      "EDITING DOCX FLOW (job): paragraphs original:",
+      originalParagraphs.length,
+      "normalized:",
+      normalizedParagraphs.length
+    );
+
+    const outputParts = new Array(normalizedParagraphs.length).fill(null);
+
+    const BATCH_MAX_PARAS = 10;
+    const BATCH_MAX_CHARS = 9000;
+
+    const editable = [];
+    for (let i = 0; i < normalizedParagraphs.length; i++) {
+      const pHtml = normalizedParagraphs[i];
+      const textOnly = stripTagsToText(pHtml);
+
+      if (!textOnly) {
+        outputParts[i] = "<p></p>";
+        continue;
+      }
+      if (isChapterTitleParagraph(pHtml)) {
+        outputParts[i] = `<p>${stripTagsToText(pHtml)}</p>`;
+        continue;
+      }
+      editable.push({ idx: i, pHtml });
+    }
+
+    const batches = [];
+    let cur = [];
+    let curChars = 0;
+
+    for (const item of editable) {
+      const len = item.pHtml.length;
+      const exceed = cur.length >= BATCH_MAX_PARAS || curChars + len > BATCH_MAX_CHARS;
+
+      if (exceed && cur.length > 0) {
+        batches.push(cur);
+        cur = [];
+        curChars = 0;
+      }
+
+      cur.push(item);
+      curChars += len;
+    }
+    if (cur.length > 0) batches.push(cur);
+
+    const { out } = await runEditingFermento({
+      openai,
+      systemForChunk,
+      batches,
+      outputParts,
+      originalParagraphs,
+      normalizedParagraphs,
+    });
+
+    // NB: per i job salviamo SOLO "result" (stringa HTML)
+    return out;
+  }
+
+  // 3) TRADUZIONE ITA->ENG
+  if (mode === "traduzione-it-en") {
+    const translationPrompt = readPromptFile("traduzione-it-en.txt");
+    if (!translationPrompt.trim()) {
+      throw new Error("Prompt traduzione-it-en.txt mancante o vuoto");
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        { role: "system", content: translationPrompt },
+        { role: "user", content: textEffective },
+      ],
+    });
+
+    const aiText = completion.choices?.[0]?.message?.content?.trim() || "Errore: nessun testo generato.";
+
+    // NB: per i job salviamo SOLO "result"
+    return aiText;
+  }
+
+  throw new Error(`Mode non supportata: ${mode || "(mancante)"}`);
+}
+
 
 // ===============================
 // API AI PRINCIPALE

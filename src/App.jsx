@@ -270,7 +270,7 @@ if (data.type === "docx") {
 
         try {
           const stRes = await fetch(
-            `${API_BASE}/api/ai-job/status?jobId=${encodeURIComponent(jobId)}`,
+          ${API_BASE}/api/ai-job/${encodeURIComponent(jobId)}
             { cache: "no-store" }
           );
 
@@ -327,7 +327,8 @@ if (data.type === "docx") {
 
       // Done -> prendi risultato
       const outRes = await fetch(
-        `${API_BASE}/api/ai-job/result?jobId=${encodeURIComponent(jobId)}`
+     ${API_BASE}/api/ai-job/${encodeURIComponent(jobId)}/result
+
       );
 
       const outData = await outRes.json().catch(() => ({}));
