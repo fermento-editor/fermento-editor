@@ -258,42 +258,72 @@ if (data.type === "docx") {
 
       const jobId = startData.jobId;
 
-      // Poll status finché non è done/error (con timeout)
+            // Poll status finché non è done/error (con timeout)
       let status = "running";
       let lastError = "";
 
-      for (let attempts = 0; attempts < 2400; attempts++) { // ~60 min
-        await new Promise((r) => setTimeout(r, 1500));
+      // retry su errori rete/polling: non deve ammazzare il job
+      let netErrors = 0;
 
-        const stRes = await fetch(
-          `${API_BASE}/api/ai-job/status?jobId=${encodeURIComponent(jobId)}`
-        );
+      for (let attempts = 0; attempts < 1200; attempts++) { // ~60 min con 3s
+        await new Promise((r) => setTimeout(r, 3000));
 
-        const stData = await stRes.json().catch(() => ({}));
-        if (!stRes.ok || !stData?.success) {
-          const msg =
-            stData?.error ||
-            `${stRes.status} ${stRes.statusText}` ||
-            "Errore status job";
-          alert("Errore AI: " + msg);
-          return;
+        try {
+          const stRes = await fetch(
+            `${API_BASE}/api/ai-job/status?jobId=${encodeURIComponent(jobId)}`,
+            { cache: "no-store" }
+          );
+
+          const stData = await stRes.json().catch(() => ({}));
+
+          // Se status endpoint non risponde bene, NON abortire subito: ritenta
+          if (!stRes.ok || !stData?.success) {
+            netErrors++;
+            console.warn("Status job non OK, retry:", stRes.status, stData);
+
+            if (netErrors >= 10) {
+              const msg =
+                stData?.error ||
+                `${stRes.status} ${stRes.statusText}` ||
+                "Errore status job (ripetuto)";
+              alert("Errore AI: " + msg);
+              return;
+            }
+
+            continue; // ritenta al prossimo giro
+          }
+
+          // Reset errori rete quando otteniamo una risposta valida
+          netErrors = 0;
+
+          status = stData.status || "running";
+          lastError = stData.error || "";
+
+          if (status === "error") {
+            alert("Errore AI: " + (lastError || "Job in errore"));
+            return;
+          }
+
+          if (status === "done") break;
+        } catch (e) {
+          // fetch failed / errori di rete: NON è errore del job, ritenta
+          netErrors++;
+          console.warn("Polling status fallito (rete). retry:", e?.message || e);
+
+          if (netErrors >= 10) {
+            alert("Errore AI: rete instabile (fetch failed ripetuto). Riprova.");
+            return;
+          }
+
+          continue;
         }
-
-        status = stData.status || "running";
-        lastError = stData.error || "";
-
-        if (status === "error") {
-          alert("Errore AI: " + (lastError || "Job in errore"));
-          return;
-        }
-
-        if (status === "done") break;
       }
 
       if (status !== "done") {
         alert("Errore AI: timeout job (non completato).");
         return;
       }
+
 
       // Done -> prendi risultato
       const outRes = await fetch(
@@ -631,16 +661,15 @@ async function handleExportEvaluationDocx() {
               <label style={{ fontSize: "12px", fontWeight: 700, display: "block", marginBottom: "4px" }}>
                 Profilo grafico
               </label>
-              <select
-            value={graphicProfile}
-           onChange={(e) => setGraphicProfile(e.target.value)}
-           disabled
-           style={{ width: "100%", padding: "6px", borderRadius: "6px" }}
+             <select
+  value={graphicProfile}
+  onChange={(e) => setGraphicProfile(e.target.value)}
+  disabled
+  style={{ width: "100%", padding: "6px", borderRadius: "6px" }}
 >
+  <option value="Narrativa contemporanea">Narrativa contemporanea</option>
+</select>
 
-              >
-                <option value="Narrativa contemporanea">Narrativa contemporanea</option>
-              </select>
             </div>
           </div>
 
