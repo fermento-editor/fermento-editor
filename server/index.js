@@ -556,6 +556,105 @@ app.delete("/api/evaluations/:id", async (req, res) => {
 // ===============================
 //   API AI PRINCIPALE
 // ===============================
+// ===============================
+// JOB API (anti-timeout per testi lunghi)
+// ===============================
+const JOBS = new Map(); // jobId -> { status, progress, total, result, error, startedAt }
+
+function newJobId() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+// Esegue un job chiamando internamente /api/ai (così NON duplichiamo la logica)
+async function runAiJob(jobId, body) {
+  const j = JOBS.get(jobId);
+  if (!j) return;
+
+  try {
+    j.status = "running";
+    j.progress = 0;
+    j.total = 1;
+
+    // Chiamata interna al nostro stesso backend (evita timeout del browser/proxy)
+    const url = `http://127.0.0.1:${PORT}/api/ai`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+
+    if (!resp.ok || !data?.success) {
+      j.status = "error";
+      j.error = data?.error || `HTTP ${resp.status} ${resp.statusText}`;
+      j.progress = 1;
+      return;
+    }
+
+    j.result = data.result;
+    j.status = "done";
+    j.progress = 1;
+  } catch (err) {
+    j.status = "error";
+    j.error = String(err?.message || err);
+    j.progress = 1;
+  }
+}
+
+
+app.post("/api/ai-job/start", async (req, res) => {
+  try {
+    const jobId = newJobId();
+    JOBS.set(jobId, {
+      status: "running",
+      progress: 0,
+      total: 0,
+      result: null,
+      error: null,
+      startedAt: Date.now(),
+    });
+
+    // Avvio asincrono: NON blocco la risposta HTTP
+    runAiJob(jobId, req.body).catch((err) => {
+      const j = JOBS.get(jobId);
+      if (j) {
+        j.status = "error";
+        j.error = String(err?.message || err);
+      }
+    });
+
+    return res.json({ success: true, jobId });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: String(err?.message || err) });
+  }
+});
+
+app.get("/api/ai-job/status", (req, res) => {
+  const { jobId } = req.query || {};
+  const j = JOBS.get(String(jobId || ""));
+  if (!j) return res.status(404).json({ success: false, error: "jobId non trovato" });
+  return res.json({
+    success: true,
+    status: j.status,
+    progress: j.progress,
+    total: j.total,
+    error: j.error,
+  });
+});
+
+app.get("/api/ai-job/result", (req, res) => {
+  const { jobId } = req.query || {};
+  const j = JOBS.get(String(jobId || ""));
+  if (!j) return res.status(404).json({ success: false, error: "jobId non trovato" });
+  if (j.status !== "done") {
+    return res.status(400).json({ success: false, error: "Job non completato", status: j.status });
+  }
+  return res.json({ success: true, result: j.result });
+});
+
+
+
 app.post("/api/ai", async (req, res) => {
   console.log(">>> /api/ai chiamata, mode:", req.body?.mode);
 
@@ -826,25 +925,26 @@ app.post("/api/ai", async (req, res) => {
         return normalizeAiParagraph(ai);
       }
 
-      // ====== 3) Esegui batches ======
-      for (let b = 0; b < batches.length; b++) {
+         // ====== 3) Esegui batches con concorrenza limitata ======
+      const CONCURRENCY = 1;
+
+      async function processOneBatch(b) {
         const batch = batches[b];
         const batchInput = batch.map((x) => x.pHtml).join("\n");
 
         const userMsg = [
-      "Devi riscrivere i paragrafi qui sotto.",
-      "VINCOLI ASSOLUTI:",
-       `- Devi restituire ESATTAMENTE ${batch.length} elementi in un JSON array (solo JSON, nessun altro testo).`,
-      "- Ogni elemento dell'array deve essere una stringa che contiene ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
-      "- Devi mantenere ESATTAMENTE lo stesso ordine degli input.",
-       "- Vietato unire o spezzare paragrafi.",
-       "- Vietato aggiungere prefazioni, commenti, markdown o backticks.",
-       "- Tag ammessi dentro i <p>: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
-       "",
-        "INPUT (paragrafi <p>...</p> uno dopo l'altro):",
-       batchInput,
-      ].join("\n");
-
+          "Devi riscrivere i paragrafi qui sotto.",
+          "VINCOLI ASSOLUTI:",
+          `- Devi restituire ESATTAMENTE ${batch.length} elementi in un JSON array (solo JSON, nessun altro testo).`,
+          "- Ogni elemento dell'array deve essere una stringa che contiene ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
+          "- Devi mantenere ESATTAMENTE lo stesso ordine degli input.",
+          "- Vietato unire o spezzare paragrafi.",
+          "- Vietato aggiungere prefazioni, commenti, markdown o backticks.",
+          "- Tag ammessi dentro i <p>: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
+          "",
+          "INPUT (paragrafi <p>...</p> uno dopo l'altro):",
+          batchInput,
+        ].join("\n");
 
         console.log(`EDITING batch ${b + 1}/${batches.length} - paras: ${batch.length}`);
 
@@ -857,20 +957,18 @@ app.post("/api/ai", async (req, res) => {
           ],
         });
 
-       let aiText = completion.choices?.[0]?.message?.content?.trim() || "";
+        let aiText = completion.choices?.[0]?.message?.content?.trim() || "";
 
-// Se il modello mette ```json ... ```, ripulisco
-aiText = aiText.replace(/^```(?:json)?\s*/i, "").replace(/```[\s\r\n]*$/i, "").trim();
+        // Ripulisci eventuali ```json ... ```
+        aiText = aiText.replace(/^```(?:json)?\s*/i, "").replace(/```[\s\r\n]*$/i, "").trim();
 
-let pList = [];
-try {
-  const parsed = JSON.parse(aiText);
-  if (Array.isArray(parsed)) pList = parsed;
-} catch (e) {
-  pList = [];
-}
-
-
+        let pList = [];
+        try {
+          const parsed = JSON.parse(aiText);
+          if (Array.isArray(parsed)) pList = parsed;
+        } catch (e) {
+          pList = [];
+        }
 
         // Retry 1 volta se mismatch
         if (pList.length !== batch.length) {
@@ -881,16 +979,15 @@ try {
             pList.length
           );
 
-         const retryMsg = [
-        "ERRORE: prima non hai restituito il JSON corretto o il numero corretto di elementi.",
-       `Devi restituire SOLO un JSON array di lunghezza ESATTA ${batch.length}.`,
-       "Ogni elemento deve essere una stringa con ESATTAMENTE UN SOLO <p>...</p>.",
-       "Nessun altro testo. Nessun markdown. Nessun backtick.",
-       "",
-       "INPUT:",
-       batchInput,
-      ].join("\n");
-
+          const retryMsg = [
+            "ERRORE: prima non hai restituito il JSON corretto o il numero corretto di elementi.",
+            `Devi restituire SOLO un JSON array di lunghezza ESATTA ${batch.length}.`,
+            "Ogni elemento deve essere una stringa con ESATTAMENTE UN SOLO <p>...</p>.",
+            "Nessun altro testo. Nessun markdown. Nessun backtick.",
+            "",
+            "INPUT:",
+            batchInput,
+          ].join("\n");
 
           const retry = await openai.chat.completions.create({
             model: "gpt-4o-mini",
@@ -901,53 +998,61 @@ try {
             ],
           });
 
-        let retryText = retry.choices?.[0]?.message?.content?.trim() || "";
+          let retryText = retry.choices?.[0]?.message?.content?.trim() || "";
+          retryText = retryText.replace(/^```(?:json)?\s*/i, "").replace(/```[\s\r\n]*$/i, "").trim();
 
-// Se il modello mette ```json ... ```, ripulisco anche qui
-retryText = retryText.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
+          pList = [];
+          try {
+            const parsedRetry = JSON.parse(retryText);
+            if (Array.isArray(parsedRetry)) pList = parsedRetry;
+          } catch (e) {
+            pList = [];
+          }
+        }
 
-pList = [];
-try {
-  const parsedRetry = JSON.parse(retryText);
-  if (Array.isArray(parsedRetry)) pList = parsedRetry;
-} catch (e) {
-  pList = [];
+        // Se ancora mismatch: fallback per-paragrafo (solo per questo batch)
+        if (pList.length !== batch.length) {
+          console.log("ERROR batch mismatch persists -> fallback to single-paragraph for this batch.");
+          for (const item of batch) {
+            const pOut = await editSingleParagraph(item.pHtml);
+            outputParts[item.idx] = pOut;
+          }
+          return;
+        }
+
+        // OK: assegna ogni paragrafo ESATTAMENTE al suo indice originale
+        for (let j = 0; j < batch.length; j++) {
+          outputParts[batch[j].idx] = normalizeAiParagraph(String(pList[j] ?? ""));
+        }
+      }
+
+      // Worker pool
+      let next = 0;
+      async function worker() {
+        while (next < batches.length) {
+          const b = next++;
+          await processOneBatch(b);
+        }
+      }
+      await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+
+
+// ====== 4) Ricomponi output in ordine ======
+const out = outputParts
+  .map((p) => (p == null ? "<p></p>" : p))
+  .join("\n");
+
+return res.json({
+  success: true,
+  result: out.trim(),
+  meta: {
+    docxFlow: true,
+    paragraphsOriginal: originalParagraphs.length,
+    paragraphsNormalized: normalizedParagraphs.length,
+  },
+});
 }
-} // <-- CHIUDE l'if del retry (mancava)
 
-// Se ancora mismatch: fallback per-paragrafo (solo per questo batch)
-if (pList.length !== batch.length) {
-  console.log("ERROR batch mismatch persists -> fallback to single-paragraph for this batch.");
-  for (const item of batch) {
-    const pOut = await editSingleParagraph(item.pHtml);
-    outputParts[item.idx] = pOut;
-  }
-  continue;
-}
-
-// OK: assegna ogni paragrafo ESATTAMENTE al suo indice originale
-for (let j = 0; j < batch.length; j++) {
-  outputParts[batch[j].idx] = normalizeAiParagraph(String(pList[j] ?? ""));
-}
-
-
-      // ====== 4) Ricomponi output in ordine ======
-      let out = outputParts
-        .map((p) => (p == null ? "<p></p>" : p))
-        .join("\n");
-
-
-
-      return res.json({
-        success: true,
-        result: out.trim(),
-        meta: {
-          docxFlow: true,
-          paragraphsOriginal: originalParagraphs.length,
-          paragraphsNormalized: normalizedParagraphs.length,
-        },
-      });
-    }
 
     // ==========================
     // 3) TRADUZIONE ITA->ENG (PROMPT ESTERNO)
