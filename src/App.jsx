@@ -328,10 +328,11 @@ if (data.type === "docx") {
 
 
       // Done -> prendi risultato
-    const outRes = await fetch(
-  `  `${API_BASE}/api/ai-job/result?jobId=${encodeURIComponent(jobId)}`,
-  { cache: "no-store" }
-);
+       const outRes = await fetch(
+      `${API_BASE}/api/ai-job/result?jobId=${encodeURIComponent(jobId)}`,
+      { cache: "no-store" }
+    );
+
 
 
 
