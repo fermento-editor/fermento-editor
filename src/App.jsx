@@ -270,9 +270,10 @@ if (data.type === "docx") {
 
         try {
        const stRes = await fetch(
-    `${API_BASE}/api/ai-job/status?jobId=${encodeURIComponent(jobId)}`,
+  `${API_BASE}/api/ai-job/status?jobId=${encodeURIComponent(jobId)}`,
   { cache: "no-store" }
 );
+
 
 
 
