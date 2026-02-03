@@ -269,10 +269,12 @@ if (data.type === "docx") {
         await new Promise((r) => setTimeout(r, 3000));
 
         try {
-          const stRes = await fetch(
-          ${API_BASE}/api/ai-job/${encodeURIComponent(jobId)}
-            { cache: "no-store" }
-          );
+       const stRes = await fetch(
+  `${API_BASE}/api/ai-job/${encodeURIComponent(jobId)}/status`,
+  { cache: "no-store" }
+);
+
+
 
           const stData = await stRes.json().catch(() => ({}));
 
@@ -326,10 +328,13 @@ if (data.type === "docx") {
 
 
       // Done -> prendi risultato
-      const outRes = await fetch(
-     ${API_BASE}/api/ai-job/${encodeURIComponent(jobId)}/result
+    const outRes = await fetch(
+  `${API_BASE}/api/ai-job/${encodeURIComponent(jobId)}/result`,
+  { cache: "no-store" }
+);
 
-      );
+
+
 
       const outData = await outRes.json().catch(() => ({}));
       if (!outRes.ok || !outData?.success) {
