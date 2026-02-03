@@ -370,6 +370,7 @@ app.post("/api/ai-job/start", async (req, res) => {
     return res.status(500).json({ success: false, error: String(err?.message || err) });
   }
 });
+
 // ===============================
 // JOB API (aliases) — compatibilità: query + path param
 // ===============================
@@ -395,69 +396,40 @@ app.get("/api/ai-job/status", async (req, res) => {
   }
 });
 
-// GET /api/ai-job/:id
-app.get("/api/ai-job/:id", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const job = await getJob(String(req.params.id || ""));
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    return res.json({
-      success: true,
-      id: req.params.id,
-      status: job.status || "unknown",
-      progress: Number(job.progress || 0),
-      error: job.error || null,
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
 
 // GET /api/ai-job/result?jobId=...
 app.get("/api/ai-job/result", async (req, res) => {
+    console.log("HIT /api/ai-job/result (query)");
+
   try {
     if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
 
     const { jobId } = req.query || {};
-    const job = await getJob(String(jobId || ""));
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
+    const jobIdStr = String(jobId || "");
 
-    if (job.status !== "done") {
-      return res.status(400).json({ success: false, error: "Job non completato", status: job.status });
+    console.log("HIT /api/ai-job/result (query)", jobIdStr);
+    // 1) Prova subito a leggere il risultato (robusto anche con hash incoerente)
+    const raw = await redis.get(`job:${jobIdStr}:result`);
+    if (raw) {
+    return res.json({ success: true, result: raw ? JSON.parse(raw) : null });
     }
 
-    const raw = await redis.get(`job:${String(jobId)}:result`);
-    if (!raw) return res.status(500).json({ success: false, error: "Risultato mancante" });
+    // 2) Se non c'è risultato, controlla lo stato del job per errore utile
+    const job = await getJob(jobIdStr);
+    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
 
-    return res.json({ success: true, result: JSON.parse(raw) });
+    return res.status(400).json({
+      success: false,
+      error: "Risultato mancante o job non completato",
+      status: job.status,
+    });
+
   } catch (err) {
     return res.status(500).json({ success: false, error: String(err?.message || err) });
   }
 });
 
-// GET /api/ai-job/:id/result
-app.get("/api/ai-job/:id/result", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
 
-    const jobId = String(req.params.id || "");
-    const job = await getJob(jobId);
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    if (job.status !== "done") {
-      return res.status(400).json({ success: false, error: "Job non completato", status: job.status });
-    }
-
-    const raw = await redis.get(`job:${jobId}:result`);
-    if (!raw) return res.status(500).json({ success: false, error: "Risultato mancante" });
-
-    return res.json({ success: true, result: JSON.parse(raw) });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
 
 
 
