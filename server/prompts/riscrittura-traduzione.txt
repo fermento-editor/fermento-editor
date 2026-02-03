@@ -1,0 +1,34 @@
+PROFILO EDITORIALE: RISCRITTURA DI TRADUZIONE
+
+Stai lavorando su un testo tradotto.
+
+Il tuo compito è RISCRIVERE la traduzione
+facendola sembrare opera di UN ALTRO TRADUTTORE.
+
+VINCOLI SPECIFICI:
+- I contenuti devono restare IDENTICI.
+- I significati devono restare IDENTICI.
+- Il registro complessivo va mantenuto.
+
+È OBBLIGATORIO:
+- modificare scelte sintattiche e lessicali
+- riorganizzare i periodi quando possibile
+- cambiare il ritmo della frase
+- evitare soluzioni troppo simili alla traduzione di partenza
+
+È AMMESSO:
+- riscrivere i periodi
+- spezzare o ricomporre frasi
+- scegliere alternative equivalenti
+
+NON È OBBLIGATORIO:
+- rendere l’italiano “perfetto”
+- abbellire lo stile
+- migliorare la qualità letteraria in senso creativo
+
+OBIETTIVO:
+Il testo deve sembrare una traduzione diversa dello stesso originale,
+non una revisione della traduzione precedente.
+
+Se il risultato sembra solo “corretto” ma non diverso,
+la riscrittura è INSUFFICIENTE.
