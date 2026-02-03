@@ -428,6 +428,32 @@ app.get("/api/ai-job/result", async (req, res) => {
     return res.status(500).json({ success: false, error: String(err?.message || err) });
   }
 });
+// GET /api/ai-job/:jobId/result  (path alias)
+app.get("/api/ai-job/:jobId/result", async (req, res) => {
+  console.log("HIT /api/ai-job/result (path)", req.params.jobId);
+
+  try {
+    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
+
+    const jobIdStr = String(req.params.jobId || "");
+
+    const raw = await redis.get(`job:${jobIdStr}:result`);
+    if (raw) {
+      return res.json({ success: true, result: raw ? JSON.parse(raw) : null });
+    }
+
+    const job = await getJob(jobIdStr);
+    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
+
+    return res.status(400).json({
+      success: false,
+      error: "Risultato mancante o job non completato",
+      status: job.status,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: String(err?.message || err) });
+  }
+});
 
 
 
