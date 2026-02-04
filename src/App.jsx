@@ -34,12 +34,8 @@ function App() {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [lastAiMode, setLastAiMode] = useState(null);
 
-  // ✅ nuovo: preferenza se l’editing deve usare la valutazione
-  const [useEvalForEditing, setUseEvalForEditing] = useState(false);
-
-  // ✅ nuovo: profilo grafico (UI → prompt)
- const [graphicProfile, setGraphicProfile] = useState("Narrativa contemporanea");
-
+ 
+  
     function stripHtmlToText(html) {
     if (!html) return "";
     return html
@@ -220,25 +216,9 @@ if (data.type === "docx") {
         text: inputText,
         projectTitle,
         projectAuthor,
-        graphicProfile,
       };
 
-      // se stiamo facendo editing/correzione, passiamo anche la valutazione
-      const isEditingMode =
-        mode === "editing-fermento" ||
-        mode === "editing" ||
-        mode === "editing-default";
-
-      if (isEditingMode) {
-        // ✅ compat: il backend usa/useva questo nome
-        body.useEvaluationForEditing = useEvalForEditing;
-
-        // ✅ (facoltativo ma utile) manteniamo anche il vecchio nome corto
-        body.useEvalForEditing = useEvalForEditing;
-
-        body.currentEvaluation = useEvalForEditing ? (currentEvaluation || "") : "";
-      }
-
+   
       // ✅ invece di chiamare /api/ai direttamente, usiamo la JOB API
       const startRes = await fetch(`${API_BASE}/api/ai-job/start`, {
         method: "POST",
@@ -664,20 +644,7 @@ async function handleExportEvaluationDocx() {
               onChange={(e) => setProjectAuthor(e.target.value)}
               placeholder="Autore progetto"
             />
-                        {/* ✅ nuovo: profilo grafico */}
-            <div style={{ marginTop: "8px", width: "100%" }}>
-              <label style={{ fontSize: "12px", fontWeight: 700, display: "block", marginBottom: "4px" }}>
-                Profilo grafico
-              </label>
-             <select
-  value={graphicProfile}
-  onChange={(e) => setGraphicProfile(e.target.value)}
-  disabled
-  style={{ width: "100%", padding: "6px", borderRadius: "6px" }}
->
-  <option value="Narrativa contemporanea">Narrativa contemporanea</option>
-</select>
-
+           
             </div>
           </div>
 
@@ -688,43 +655,7 @@ async function handleExportEvaluationDocx() {
             Valutazione manoscritto
           </button>
         
-          {/* ✅ SCELTA: EDITING BASATO O NO SULLA VALUTAZIONE */}
-          <div
-            className="buttons-row"
-            style={{ marginTop: "8px", marginBottom: "4px" }}
-          >
-            <button
-              onClick={() => setUseEvalForEditing(true)}
-              style={{
-                padding: "4px 8px",
-                borderRadius: "6px",
-                border: "none",
-                fontSize: "11px",
-                fontWeight: 600,
-                cursor: "pointer",
-                backgroundColor: useEvalForEditing ? "#e67e22" : "#bdc3c7",
-                color: "white",
-              }}
-            >
-              Editing basato su valutazione
-            </button>
-            <button
-              onClick={() => setUseEvalForEditing(false)}
-              style={{
-                padding: "4px 8px",
-                borderRadius: "6px",
-                border: "none",
-                fontSize: "11px",
-                fontWeight: 600,
-                cursor: "pointer",
-                backgroundColor: !useEvalForEditing ? "#2c3e50" : "#bdc3c7",
-                color: "white",
-              }}
-            >
-              Editing senza valutazione
-            </button>
-          </div>
-
+          
           <h3 style={{ marginTop: "10px" }}>Valutazione corrente</h3>
           <textarea
             value={currentEvaluation}
