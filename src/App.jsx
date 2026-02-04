@@ -646,7 +646,7 @@ async function handleExportEvaluationDocx() {
             />
            
             </div>
-          </div>
+        
 
           <button
             onClick={() => callAi("valutazione-manoscritto")}
