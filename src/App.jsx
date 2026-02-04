@@ -33,6 +33,8 @@ function App() {
 
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [lastAiMode, setLastAiMode] = useState(null);
+  // ✅ nuovo: profilo editing (contratto minimo)
+  const [editingProfile, setEditingProfile] = useState("");
 
  
   
@@ -205,6 +207,10 @@ if (data.type === "docx") {
       alert("Inserisci o carica del testo nella colonna di sinistra.");
       return;
     }
+    if (mode === "editing" && !editingProfile) {
+      alert("Scegli il tipo di editing: Testo originale oppure Traduzione.");
+      return;
+    }
 
     setIsAiLoading(true);
     setLastAiMode(mode);
@@ -217,6 +223,7 @@ if (data.type === "docx") {
         projectTitle,
         projectAuthor,
       };
+      if (mode === "editing") body.editingProfile = editingProfile;
 
    
       // ✅ invece di chiamare /api/ai direttamente, usiamo la JOB API
@@ -582,15 +589,42 @@ async function handleExportEvaluationDocx() {
       onChange={(e) => setInputText(e.target.value)}
       placeholder="Incolla qui il testo o caricalo da file..."
     />
+    {/* ✅ Scelta tipo di editing (obbligatoria) */}
+    <div style={{ margin: "8px 0", display: "flex", gap: "12px", alignItems: "center", fontSize: "12px" }}>
+      <strong>Tipo editing:</strong>
+
+      <label style={{ display: "flex", gap: "6px", alignItems: "center", cursor: "pointer" }}>
+        <input
+          type="radio"
+          name="editingProfile"
+          value="originale"
+          checked={editingProfile === "originale"}
+          onChange={(e) => setEditingProfile(e.target.value)}
+        />
+        Testo originale
+      </label>
+
+      <label style={{ display: "flex", gap: "6px", alignItems: "center", cursor: "pointer" }}>
+        <input
+          type="radio"
+          name="editingProfile"
+          value="traduzione"
+          checked={editingProfile === "traduzione"}
+          onChange={(e) => setEditingProfile(e.target.value)}
+        />
+        Traduzione
+      </label>
+    </div>
 
                     <div className="buttons-row">
             <button
-              onClick={() => callAi("editing-fermento")}
+             onClick={() => callAi("editing")}
               disabled={isAiLoading}
             >
-              {isAiLoading && lastAiMode === "editing-fermento"
-                ? "AI: editing..."
-                : "Editing + Correzione bozze"}
+              {isAiLoading && lastAiMode === "editing"
+              ? "AI: editing..."
+             : "Editing"}
+
             </button>
 
             <button
