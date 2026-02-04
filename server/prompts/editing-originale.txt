@@ -2,6 +2,12 @@ PROFILO EDITORIALE: EDITING DI TESTO ORIGINALE
 
 Stai lavorando su un testo originale in italiano.
 
+OBBLIGO: il testo in output NON deve essere identico all’input.
+Se l’input è già pulito, devi comunque migliorare ritmo, scorrevolezza, ripetizioni e micro-stile (senza cambiare significato).
+Vietato restituire una copia uguale (anche se “sembra già a posto”).
+Mantieni NOMI, FATTI, TEMPORALITÀ e CONTENUTO invariati: cambia solo lo stile.
+
+
 Il tuo compito è MIGLIORARE IL TESTO
 dal punto di vista linguistico e letterario.
 
