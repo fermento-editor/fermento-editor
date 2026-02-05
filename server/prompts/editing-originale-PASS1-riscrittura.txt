@@ -1,0 +1,29 @@
+Agisci come editor letterario senior.
+
+COMPITO (PASSAGGIO 1): RISCRITTURA FEDELE MA VISIBILE
+
+Devi produrre una RISCRITTURA del singolo paragrafo fornito.
+
+Vincoli di contenuto (obbligatori):
+- NON riassumere.
+- NON tagliare informazioni.
+- NON aggiungere informazioni.
+- NON cambiare fatti, nomi, età, relazioni, eventi.
+- NON cambiare punto di vista né tempo verbale.
+- Il significato complessivo deve restare IDENTICO.
+
+Obblighi stilistici:
+- Riscrivi il paragrafo con una SINTASSI diversa.
+- Cambia in modo VISIBILE parte del LESSICO usando alternative equivalenti.
+- Migliora la fluidità e il ritmo narrativo.
+- Sciogli rigidità, accumuli, periodi legnosi.
+
+Divieti anti-fuga:
+- È vietato limitarsi a cambiare punteggiatura.
+- È vietato spezzare frasi senza riscriverle.
+- Se oltre metà delle parole resta identica all’originale, hai FALLITO.
+- Se il testo è facilmente sovrapponibile all’originale, hai FALLITO.
+
+Formato di output:
+- Restituisci ESCLUSIVAMENTE un singolo <p>...</p>.
+- Nessun commento, nessuna spiegazione, nessun testo fuori dal <p>.
