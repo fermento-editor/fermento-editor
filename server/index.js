@@ -678,37 +678,125 @@ async function runEditingFermento({
 }) {
   console.log("EDITING BATCHES:", batches.length);
 
-  async function editSingleParagraph(pHtml) {
-    const userMsg = [
-      "Devi riscrivere SOLO questo singolo paragrafo.",
-      "VINCOLI:",
-      "- Devi restituire ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
-      "- Vietato creare più paragrafi o fonderlo con altri.",
-      "- Vietato aggiungere prefazioni o commenti.",
-      "- Tag ammessi: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
-      "",
-      "PARAGRAFO INPUT:",
-      pHtml,
-    ].join("\n");
+   // Flag: di default OFF (non cambia nulla se non lo attivi su Render)
+  const TWO_PASS_EDITING = String(process.env.TWO_PASS_EDITING || "").toLowerCase() === "true"
+    || String(process.env.TWO_PASS_EDITING || "") === "1";
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      messages: [
-        { role: "system", content: systemForChunk },
-        { role: "user", content: userMsg },
-      ],
-    });
-
-    const ai = completion.choices?.[0]?.message?.content?.trim() || "";
-    return normalizeAiParagraph(ai);
+  // Carica i prompt 2-pass se presenti (fallback sicuro al single-pass)
+  let PASS1_SYSTEM = "";
+  let PASS2_SYSTEM = "";
+  try {
+    // usa path relativo alla root server (index.js è in server/)
+    const p1Path = new URL("./prompts/editing-originale-PASS1-riscrittura.txt", import.meta.url);
+    const p2Path = new URL("./prompts/editing-originale-PASS2-riconciliazione.txt", import.meta.url);
+    PASS1_SYSTEM = fs.readFileSync(p1Path, "utf8");
+    PASS2_SYSTEM = fs.readFileSync(p2Path, "utf8");
+  } catch (e) {
+    console.log("WARN two-pass prompts not found -> TWO_PASS_EDITING will fallback to single-pass.", e?.message || e);
+    PASS1_SYSTEM = "";
+    PASS2_SYSTEM = "";
   }
+
+  async function editSingleParagraph(pHtml) {
+    // --- SINGLE PASS (comportamento attuale) ---
+    async function singlePass() {
+      const userMsg = [
+        "Devi riscrivere SOLO questo singolo paragrafo.",
+        "VINCOLI:",
+        "- Devi restituire ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
+        "- Vietato creare più paragrafi o fonderlo con altri.",
+        "- Vietato aggiungere prefazioni o commenti.",
+        "- Tag ammessi: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
+        "",
+        "PARAGRAFO INPUT:",
+        pHtml,
+      ].join("\n");
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          { role: "system", content: systemForChunk },
+          { role: "user", content: userMsg },
+        ],
+      });
+
+      const ai = completion.choices?.[0]?.message?.content?.trim() || "";
+      return normalizeAiParagraph(ai);
+    }
+
+    // Se flag OFF o prompt mancanti -> single-pass (zero rischio)
+    if (!TWO_PASS_EDITING || !PASS1_SYSTEM || !PASS2_SYSTEM) {
+      return await singlePass();
+    }
+
+    // --- TWO PASS ---
+    try {
+      // PASS 1: riscrittura
+      const pass1User = [
+        "INPUT:",
+        pHtml,
+        "",
+        "RICORDA: restituisci SOLO un singolo <p>...</p> (uno e uno solo).",
+      ].join("\n");
+
+      const c1 = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          { role: "system", content: PASS1_SYSTEM },
+          { role: "user", content: pass1User },
+        ],
+      });
+
+      const draft = normalizeAiParagraph(c1.choices?.[0]?.message?.content?.trim() || "");
+
+      // PASS 2: riconciliazione (originale vs draft)
+      const pass2User = [
+        "(A) ORIGINALE:",
+        pHtml,
+        "",
+        "(B) RISCRITTURA PROPOSTA:",
+        draft,
+        "",
+        "OUTPUT: restituisci SOLO un singolo <p>...</p> (uno e uno solo).",
+      ].join("\n");
+
+      const c2 = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        messages: [
+          { role: "system", content: PASS2_SYSTEM },
+          { role: "user", content: pass2User },
+        ],
+      });
+
+      const finalP = normalizeAiParagraph(c2.choices?.[0]?.message?.content?.trim() || "");
+
+      // Se per qualunque motivo esce vuoto, almeno torna draft
+      return finalP || draft || (await singlePass());
+    } catch (e) {
+      console.log("WARN two-pass failed -> fallback single-pass.", e?.message || e);
+      return await singlePass();
+    }
+  }
+
 
   const CONCURRENCY = 1;
 
   async function processOneBatch(b) {
     const batch = batches[b];
     const batchInput = batch.map((x) => x.pHtml).join("\n");
+        // TWO-PASS: forza paragrafo-per-paragrafo (usa editSingleParagraph che ora fa 2 chiamate)
+    if (TWO_PASS_EDITING) {
+      console.log(`TWO_PASS_EDITING ON -> bypass batch ${b + 1}/${batches.length}, paras: ${batch.length}`);
+      for (const item of batch) {
+        const pOut = await editSingleParagraph(item.pHtml);
+        outputParts[item.idx] = pOut;
+      }
+      return;
+    }
+
 
     const userMsg = [
       "Devi riscrivere i paragrafi qui sotto.",
