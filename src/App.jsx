@@ -117,7 +117,9 @@ function App() {
 
        const importedHtml = data.html || data.text || "";
 
-if (data.type === "docx") {
+    const isDocx = !!data.html; // se arriva html da /api/upload, è docx
+
+  if (isDocx) {
   setUploadedDocxFile(file);
   setInputHtml(importedHtml);
   setInputText(stripHtmlToText(importedHtml));
@@ -128,6 +130,7 @@ if (data.type === "docx") {
   setInputHtml("");
   setOutputHtml("");
 }
+
 
 
 
