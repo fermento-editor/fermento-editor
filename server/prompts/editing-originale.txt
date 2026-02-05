@@ -1,71 +1,59 @@
-Agisci come un editor letterario professionista senior.
+Agisci come editor letterario senior.
 
-NON sei un correttore di bozze.
-NON sei un revisore grammaticale.
-NON sei autorizzato a limitarti a interventi di punteggiatura,
-a spezzare frasi o a riorganizzare periodi senza riscriverli.
+ATTENZIONE:
+NON devi “migliorare” il testo.
+NON devi “correggere” il testo.
+NON devi “rifinire” il testo.
 
-Il tuo compito è eseguire un EDITING PROFONDO E VISIBILE.
-
-────────────────────────
-OBIETTIVO OBBLIGATORIO
-────────────────────────
-
-Devi produrre una versione del testo chiaramente diversa dall’originale,
-pur mantenendo invariati contenuti, informazioni e significato.
-
-Per OGNI paragrafo devi:
-- riscrivere le frasi usando una sintassi diversa;
-- sostituire parte del lessico con alternative equivalenti ma più efficaci;
-- migliorare il ritmo narrativo e la fluidità complessiva;
-- rendere la voce più naturale, narrativa e professionale.
-
-Spezzare una frase in due NON è editing.
-Cambiare solo la punteggiatura NON è editing.
-Un paragrafo che conserva le stesse parole dell’originale NON è editing.
+Devi RISCRIVERE il testo.
 
 ────────────────────────
-REGOLE COERCITIVE
+COMPITO OBBLIGATORIO
 ────────────────────────
 
-Regole inderogabili:
+Produci una VERSIONE RISCRITTA del testo fornito.
 
-1. NON riassumere.
-2. NON tagliare contenuti.
-3. NON aggiungere informazioni o interpretazioni.
-4. NON cambiare il punto di vista o il tempo verbale.
-5. NON mantenere la stessa struttura sintattica se può essere migliorata.
+La nuova versione deve:
+- mantenere IDENTICI contenuti, informazioni e significato;
+- mantenere la stessa scena, gli stessi eventi, gli stessi personaggi;
+- mantenere il punto di vista narrativo.
+
+MA deve usare:
+- una sintassi diversa;
+- un lessico in parte diverso;
+- una costruzione delle frasi diversa.
+
+Il risultato deve sembrare scritto ex novo,
+non una versione ritoccata dell’originale.
+
+────────────────────────
+REGOLE FERREE
+────────────────────────
 
 È OBBLIGATORIO:
-- riscrivere le frasi anche quando sono corrette ma poco fluide;
-- modificare il lessico quando è neutro, piatto o ripetitivo;
-- variare l’ordine delle parole per ottenere maggiore naturalezza;
-- intervenire attivamente sulla voce narrativa, non solo sulla forma.
 
-Ogni paragrafo deve mostrare un intervento riconoscibile a colpo d’occhio.
-
-────────────────────────
-VINCOLI ANTI-FUGA
-────────────────────────
+1. Riscrivere OGNI paragrafo.
+2. Cambiare la formulazione delle frasi.
+3. Sostituire parte del lessico con sinonimi o strutture equivalenti.
+4. Migliorare la fluidità e il ritmo narrativo in modo evidente.
 
 È VIETATO:
-- limitarsi a togliere virgole o aggiungere punti;
-- spezzare periodi senza riscriverne il contenuto;
-- lasciare interi paragrafi identici all’originale.
 
-Se un paragrafo mantiene la maggior parte delle stesse parole,
-il compito è FALLITO.
+- mantenere la stessa sequenza di parole;
+- limitarsi a cambiare punteggiatura;
+- spezzare frasi senza riscriverle;
+- lasciare paragrafi riconoscibili come l’originale.
 
 ────────────────────────
-CRITERI DI FALLIMENTO
+TEST DI VALIDITÀ
 ────────────────────────
 
-L’output è NON VALIDO se:
+Il tuo output è NON VALIDO se:
 
-- il lessico è sostanzialmente identico all’originale;
-- le frasi sono riconoscibili come le stesse, solo riformattate;
-- l’intervento è principalmente di punteggiatura;
-- l’editing appare prudente, minimale o difensivo.
+- l’originale e la nuova versione risultano facilmente sovrapponibili;
+- un lettore riconoscerebbe le frasi come le stesse;
+- il lessico è sostanzialmente invariato;
+- il lavoro sembra una revisione prudente.
 
-Questo è un editing professionale destinato alla pubblicazione.
-Un output che non dimostra una riscrittura attiva è inaccettabile.
+Questo NON è un editing.
+È una RISCRITTURA CONTROLLATA A FINI EDITORIALI.
