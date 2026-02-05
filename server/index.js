@@ -185,10 +185,31 @@ async function runAiCore(body) {
     projectAuthor = "",
   } = body;
 
+    // ---- NORMALIZZAZIONE MODE (compatibilità frontend) ----
+  let modeEffective = mode;
+
+  // alias EDITING (frontend storico)
+  if (
+    modeEffective === "editing" ||
+    modeEffective === "editing-fermento" ||
+    modeEffective === "editing-default"
+  ) {
+    modeEffective = "editing-originale";
+  }
+
+  // alias TRADUZIONE
+  if (
+    modeEffective === "traduzione" ||
+    modeEffective === "traduzione-riscrittura-fermento"
+  ) {
+    modeEffective = "traduzione-riscrittura";
+  }
+
+
   const textEffective = text || html || "";
 
   // -------- VALUTAZIONE --------
-  if (mode === "valutazione") {
+  if (modeEffective === "valutazione") {
     const prompt = readPromptFile("valutazione-fermento.txt");
     const chunks = chunkText(textEffective);
     const out = [];
@@ -208,7 +229,7 @@ async function runAiCore(body) {
   }
 
   // -------- EDITING ORIGINALE --------
-  if (mode === "editing-originale") {
+  if (modeEffective === "editing-originale") {
     const systemPrompt = readPromptFile("editing-originale.txt");
 
     let htmlEffective = textEffective;
@@ -242,7 +263,7 @@ async function runAiCore(body) {
   }
 
   // -------- TRADUZIONE / RISCRITTURA --------
-  if (mode === "traduzione-riscrittura") {
+  if (modeEffective === "traduzione-riscrittura") {
     const prompt = readPromptFile("traduzione-riscrittura.txt");
     const r = await openai.chat.completions.create({
       model: AI_MODEL,
