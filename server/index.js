@@ -58,6 +58,32 @@ const uploadDir = path.join(__dirname, "uploads");
 fs.mkdirSync(uploadDir, { recursive: true });
 const upload = multer({ dest: uploadDir });
 
+// ===============================
+// UPLOAD DOCX -> HTML (per frontend)
+// ===============================
+app.post("/api/upload", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: "Nessun file ricevuto (field: file)" });
+    }
+
+    const filePath = req.file.path;
+
+    // DOCX -> HTML
+    const result = await mammoth.convertToHtml({ path: filePath });
+    const html = String(result.value || "");
+
+    // pulizia file temporaneo
+    try { await fsPromises.unlink(filePath); } catch (_) {}
+
+    return res.json({ success: true, html });
+  } catch (e) {
+    console.error("UPLOAD ERROR:", e);
+    return res.status(500).json({ success: false, error: e.message || "Upload failed" });
+  }
+});
+
+
 const promptsDir = path.join(__dirname, "prompts");
 const dataDir = path.join(__dirname, "data");
 
