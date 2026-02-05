@@ -1,6 +1,10 @@
-// server/index.js - Fermento Editor backend (DOCX + PDF + AI)
-// SINGLE SOURCE OF TRUTH per JOB: Redis
-// Endpoint JOB unici: /api/ai-job/start | /api/ai-job/status | /api/ai-job/result
+// server/index.js — FERMENTO EDITOR BACKEND (SEMPLIFICATO, STABILE)
+// SINGLE SOURCE OF TRUTH: Redis JOB
+// MODE SUPPORTATE:
+// - valutazione
+// - editing-originale
+// - traduzione-riscrittura
+// MODELLO UNICO: gpt-5.2
 
 import express from "express";
 import cors from "cors";
@@ -15,1380 +19,256 @@ import fsPromises from "fs/promises";
 import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
 
-// ===============================
-// ENV
-// ===============================
 dotenv.config();
 
 // ===============================
-// REDIS (dynamic import dopo dotenv)
+// COSTANTI
+// ===============================
+const AI_MODEL = "gpt-5.2";
+const JOB_TTL_SECONDS = 60 * 60;
+const PORT = process.env.PORT || 3001;
+
+// ===============================
+// OPENAI
+// ===============================
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// ===============================
+// APP
+// ===============================
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+app.use((req, _res, next) => {
+  console.log("REQ:", req.method, req.url);
+  next();
+});
+
+// ===============================
+// PATH
+// ===============================
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const uploadDir = path.join(__dirname, "uploads");
+fs.mkdirSync(uploadDir, { recursive: true });
+const upload = multer({ dest: uploadDir });
+
+const promptsDir = path.join(__dirname, "prompts");
+const dataDir = path.join(__dirname, "data");
+
+// ===============================
+// REDIS
 // ===============================
 let redis = null;
 async function initRedis() {
   try {
     const mod = await import("./redis.js");
     redis = mod.redis || null;
-
     if (redis) {
       await redis.ping();
-      console.log("✅ Redis connesso correttamente");
-    } else {
-      console.warn("⚠️ REDIS_URL non definita (redis = null)");
+      console.log("✅ Redis connesso");
     }
-  } catch (err) {
-    console.error("❌ Errore init Redis:", err?.message || err);
+  } catch (e) {
+    console.error("❌ Redis error:", e);
     redis = null;
   }
 }
 
 // ===============================
-// CLIENT OPENAI
+// UTILS
 // ===============================
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-console.log("OPENAI_API_KEY presente?", !!process.env.OPENAI_API_KEY);
+function readPromptFile(name) {
+  return fs.readFileSync(path.join(promptsDir, name), "utf8");
+}
 
-// ===============================
-// APP + CONFIG
-// ===============================
-const app = express();
-const PORT = process.env.PORT || 3001;
-
-app.use(cors());
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-
-// ✅ LOG DI OGNI RICHIESTA (così vedi SEMPRE se arriva una chiamata)
-app.use((req, _res, next) => {
-  console.log("REQ:", req.method, req.url);
-  next();
-});
-
-// __dirname per ESM
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// cartella upload
-const uploadDir = path.join(__dirname, "uploads");
-fs.mkdirSync(uploadDir, { recursive: true });
-const upload = multer({ dest: uploadDir });
-
-// cartella prompts (dentro /server/prompts)
-const promptsDir = path.join(__dirname, "prompts");
-
-// file valutazioni (ARCHIVIO SERVER: lo manteniamo)
-const evaluationsPath = path.join(__dirname, "data", "evaluations.json");
-
-// (opzionale) file lista best seller mercato
-const marketTopListPath = path.join(__dirname, "data", "marketTopList.json");
-
-// ===============================
-// UTILITY: LETTURA PROMPT ESTERNI
-// ===============================
-function readPromptFile(filename) {
-  const full = path.join(promptsDir, filename);
-  try {
-    return fs.readFileSync(full, "utf8");
-  } catch (err) {
-    console.error("Errore readPromptFile:", filename, err?.message || err);
-    return "";
+function chunkText(text, size = 80000) {
+  const out = [];
+  let i = 0;
+  while (i < text.length) {
+    out.push(text.slice(i, i + size));
+    i += size;
   }
+  return out;
 }
 
-// ===============================
-// UTILITY: LETTURA/SCRITTURA VALUTAZIONI
-// ===============================
-async function loadEvaluations() {
-  try {
-    const data = await fsPromises.readFile(evaluationsPath, "utf8");
-    return JSON.parse(data);
-  } catch (err) {
-    if (err.code === "ENOENT") return [];
-    console.error("Errore loadEvaluations:", err);
-    return [];
-  }
+function looksLikeDocxHtml(t) {
+  return typeof t === "string" && /<p\b/i.test(t);
 }
 
-async function saveEvaluations(list) {
-  try {
-    await fsPromises.mkdir(path.dirname(evaluationsPath), { recursive: true });
-    await fsPromises.writeFile(evaluationsPath, JSON.stringify(list, null, 2), "utf8");
-  } catch (err) {
-    console.error("Errore saveEvaluations:", err);
-  }
-}
-
-// ===============================
-// UTILITY: LISTA TOP BESTSELLER (MERCATO) - opzionale
-// ===============================
-async function loadMarketTopList() {
-  try {
-    const data = await fsPromises.readFile(marketTopListPath, "utf8");
-    return JSON.parse(data);
-  } catch (err) {
-    if (err.code !== "ENOENT") {
-      console.error("Errore loadMarketTopList:", err);
-    }
-    return [];
-  }
-}
-
-// ===============================
-// FILTRO TIPOGRAFICO (leggero)
-// ===============================
-function applyTypographicFixes(text) {
-  if (!text) return text;
-  let t = text;
-
-  t = t.replace(/\s+([.,;:!?])/g, "$1");
-  t = t.replace(/(["«“])\s+/g, "$1");
-  t = t.replace(/\s+(["»”'])/g, "$1");
-  t = t.replace(/""/g, '"');
-  t = t.replace(/([!?])\.{1,}/g, "$1");
-  t = t.replace(/[!?]{2,}/g, (m) => m[m.length - 1]);
-  t = t.replace(/(["»”])\s*(?![.,;:!? \n\r])/g, "$1 ");
-  t = t.replace(/ {2,}/g, " ");
-  t = t.replace(/([a-zA-ZÀ-ÿ])"(?=[A-Za-zÀ-ÿ])/g, '$1 "');
-
-  return t;
-}
-
-// =========================
-// FUNZIONE UNICA DI SPEZZETTAMENTO
-// =========================
-function chunkText(text, chunkSize = 15000) {
-  const s = typeof text === "string" ? text : String(text || "");
-  const chunks = [];
-  let index = 0;
-  while (index < s.length) {
-    chunks.push(s.slice(index, index + chunkSize));
-    index += chunkSize;
-  }
-  return chunks;
-}
-
-// =========================
-// DOCX HTML PARAGRAPH UTILITIES (per preservare struttura)
-// =========================
 function extractParagraphs(html) {
-  if (!html || typeof html !== "string") return [];
-  const matches = html.match(/<p\b[^>]*>[\s\S]*?<\/p>/gi);
-  return matches ? matches : [];
+  return html.match(/<p\b[^>]*>[\s\S]*?<\/p>/gi) || [];
 }
 
-function stripTagsToText(html) {
-  if (!html) return "";
-  return String(html)
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\u00a0/g, " ")
-    .trim();
+function stripTags(html) {
+  return html.replace(/<[^>]+>/g, "").trim();
 }
 
-// Split <p> con <br> in più <p> (scelta B)
-function splitParagraphOnBr(pHtml) {
-  const inner = pHtml
-    .replace(/^<p\b[^>]*>/i, "")
-    .replace(/<\/p>\s*$/i, "");
-
-  if (!/<br\s*\/?>/i.test(inner)) return [pHtml];
-
-  const parts = inner.split(/<br\s*\/?>/i);
-  return parts.map((part) => `<p>${part}</p>`);
-}
-
-// Regola titoli capitolo/sezione: NON mandarli all'AI
-function isChapterTitleParagraph(pHtml) {
-  const text = stripTagsToText(pHtml);
-  if (!text) return false;
-  return /^capitolo\b/i.test(text);
-}
-
-function looksLikeDocxHtml(text) {
-  return typeof text === "string" && /<p\b/i.test(text);
-}
-
-function escapeHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
-// Ripulisce output AI: deve diventare ESATTAMENTE un <p>...</p>
-function normalizeAiParagraph(aiText) {
-  const s = String(aiText || "").trim();
-  const noFences = s.replace(/```[\s\S]*?```/g, "").trim();
-  const m = noFences.match(/<p\b[^>]*>[\s\S]*?<\/p>/i);
-  if (m) return m[0].trim();
-  return `<p>${noFences}</p>`;
+function normalizeAiParagraph(p) {
+  const s = String(p || "").trim();
+  const m = s.match(/<p\b[^>]*>[\s\S]*<\/p>/i);
+  return m ? m[0] : `<p>${s}</p>`;
 }
 
 // ===============================
-// UPLOAD DOCX/PDF
+// REDIS JOB UTILS
 // ===============================
-async function handleUpload(req, res) {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, error: "Nessun file caricato" });
-    }
-
-    const ext = path.extname(req.file.originalname).toLowerCase();
-
-    // PDF → testo semplice
-    if (ext === ".pdf") {
-      try {
-        const buffer = await fsPromises.readFile(req.file.path);
-        const pdfModule = await import("pdf-parse-fixed");
-
-        const pdfParseFn =
-          typeof pdfModule.default === "function"
-            ? pdfModule.default
-            : typeof pdfModule === "function"
-            ? pdfModule
-            : pdfModule.pdfParse;
-
-        if (!pdfParseFn) throw new Error("Modulo pdf-parse-fixed non compatibile");
-
-        const result = await pdfParseFn(buffer);
-        const text = result.text || "";
-
-        await fsPromises.unlink(req.file.path).catch(() => {});
-        return res.json({ success: true, type: "pdf", text });
-      } catch (err) {
-        console.error("Errore parsing PDF:", err);
-        await fsPromises.unlink(req.file.path).catch(() => {});
-        return res.status(500).json({ success: false, error: "Errore nella lettura del PDF" });
-      }
-    }
-
-    // DOCX → HTML
-    if (ext === ".docx") {
-      const buffer = await fsPromises.readFile(req.file.path);
-      const result = await mammoth.convertToHtml({ buffer });
-      const html = result.value || "";
-
-      await fsPromises.unlink(req.file.path).catch(() => {});
-      return res.json({ success: true, type: "docx", text: html });
-    }
-
-    await fsPromises.unlink(req.file.path).catch(() => {});
-    return res.status(400).json({
-      success: false,
-      error: "Formato non supportato. Carica un file .docx o .pdf",
-    });
-  } catch (err) {
-    console.error("Errore upload DOCX/PDF:", err);
-    return res.status(500).json({ success: false, error: "Errore durante l'import del file" });
-  }
-}
-
-app.post("/api/import-docx", upload.single("file"), handleUpload);
-app.post("/api/import", upload.single("file"), handleUpload);
-app.post("/api/upload", upload.single("file"), handleUpload);
-
-// ===============================
-// JOB API (Redis) — single source of truth
-// Endpoint unici: /api/ai-job/start | /api/ai-job/status | /api/ai-job/result
-// ===============================
-const JOB_TTL_SECONDS = 60 * 60; // 1 ora
-
-async function setJob(jobId, fields) {
-  if (!redis) throw new Error("Redis non configurato");
-  const jobKey = `job:${jobId}`;
-  await redis.hset(jobKey, fields);
-  await redis.expire(jobKey, JOB_TTL_SECONDS);
+async function setJob(jobId, data) {
+  await redis.hset(`job:${jobId}`, data);
+  await redis.expire(`job:${jobId}`, JOB_TTL_SECONDS);
 }
 
 async function getJob(jobId) {
-  if (!redis) return null;
-  const jobKey = `job:${jobId}`;
-  const data = await redis.hgetall(jobKey);
-  return data && Object.keys(data).length ? data : null;
+  const d = await redis.hgetall(`job:${jobId}`);
+  return Object.keys(d).length ? d : null;
 }
 
-// CORE JOB: esegue la richiesta lunga SENZA chiamare via HTTP /api/ai (anti-timeout)
-async function processJobReal(jobId) {
+// ===============================
+// JOB PROCESSOR
+// ===============================
+async function processJob(jobId) {
   try {
-    await setJob(jobId, { status: "running", progress: "0.01" });
-
-    const rawPayload = await redis.get(`job:${jobId}:payload`);
-    const body = rawPayload ? JSON.parse(rawPayload) : {};
-
-    // ✅ chiamata diretta alla logica AI (no fetch interno)
-    const result = await runAiCore(body);
-
+    await setJob(jobId, { status: "running", progress: "0.1" });
+    const payload = JSON.parse(await redis.get(`job:${jobId}:payload`));
+    const result = await runAiCore(payload);
     await redis.set(
       `job:${jobId}:result`,
-      JSON.stringify(result ?? null),
+      JSON.stringify(result),
       "EX",
       JOB_TTL_SECONDS
     );
-
-    await setJob(jobId, { status: "done", progress: "1.0" });
+    await setJob(jobId, { status: "done", progress: "1" });
   } catch (e) {
-    try {
-      await setJob(jobId, {
-        status: "error",
-        progress: "1",
-        error: String(e?.message || e),
-      });
-    } catch (_e2) {
-      console.error("❌ processJobReal error:", e?.message || e);
-    }
+    await setJob(jobId, { status: "error", error: e.message });
   }
 }
 
-
-// POST /api/ai-job/start
-app.post("/api/ai-job/start", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const jobId = uuidv4();
-    await setJob(jobId, {
-      status: "queued",
-      progress: "0",
-      createdAt: String(Date.now()),
-    });
-
-    await redis.set(
-      `job:${jobId}:payload`,
-      JSON.stringify(req.body || {}),
-      "EX",
-      JOB_TTL_SECONDS
-    );
-
-    setImmediate(() => processJobReal(jobId));
-
-    return res.json({ success: true, jobId });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-
 // ===============================
-// JOB API (aliases) — compatibilità: query + path param
-// ===============================
-
-// GET /api/ai-job/status?jobId=...
-app.get("/api/ai-job/status", async (req, res) => {
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const { jobId } = req.query || {};
-    const job = await getJob(String(jobId || ""));
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    return res.json({
-      success: true,
-      status: job.status || "unknown",
-      progress: Number(job.progress || 0),
-      total: Number(job.total || 0),
-      error: job.error || null,
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-
-
-// GET /api/ai-job/result?jobId=...
-app.get("/api/ai-job/result", async (req, res) => {
-    console.log("HIT /api/ai-job/result (query)");
-
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const { jobId } = req.query || {};
-    const jobIdStr = String(jobId || "");
-
-    console.log("HIT /api/ai-job/result (query)", jobIdStr);
-    // 1) Prova subito a leggere il risultato (robusto anche con hash incoerente)
-    const raw = await redis.get(`job:${jobIdStr}:result`);
-    if (raw) {
-    return res.json({ success: true, result: raw ? JSON.parse(raw) : null });
-    }
-
-    // 2) Se non c'è risultato, controlla lo stato del job per errore utile
-    const job = await getJob(jobIdStr);
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    return res.status(400).json({
-      success: false,
-      error: "Risultato mancante o job non completato",
-      status: job.status,
-    });
-
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-// GET /api/ai-job/:jobId/result  (path alias)
-app.get("/api/ai-job/:jobId/result", async (req, res) => {
-  console.log("HIT /api/ai-job/result (path)", req.params.jobId);
-
-  try {
-    if (!redis) return res.status(500).json({ success: false, error: "Redis non configurato" });
-
-    const jobIdStr = String(req.params.jobId || "");
-
-    const raw = await redis.get(`job:${jobIdStr}:result`);
-    if (raw) {
-      return res.json({ success: true, result: raw ? JSON.parse(raw) : null });
-    }
-
-    const job = await getJob(jobIdStr);
-    if (!job) return res.status(404).json({ success: false, error: "jobId non trovato" });
-
-    return res.status(400).json({
-      success: false,
-      error: "Risultato mancante o job non completato",
-      status: job.status,
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, error: String(err?.message || err) });
-  }
-});
-
-
-
-
-
-// ===============================
-// EXPORT HTML -> DOCX
-// ===============================
-app.post("/api/export-docx", async (req, res) => {
-  try {
-    const { html } = req.body;
-
-    if (!html || typeof html !== "string") {
-      return res.status(400).json({ success: false, error: "html mancante nel body" });
-    }
-
-    let safeHtml = html;
-    safeHtml = safeHtml.replace(/è\"/g, 'è "').replace(/\"/g, '"');
-
-    const wrappedHtml = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-  </head>
-  <body>
-    ${safeHtml}
-  </body>
-</html>`;
-
-    const docxBuffer = await htmlToDocx(wrappedHtml, null, {
-      font: "Times New Roman",
-      fontSize: 24,
-    });
-
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    );
-    res.setHeader("Content-Disposition", 'attachment; filename="document.docx"');
-
-    return res.end(docxBuffer);
-  } catch (err) {
-    console.error("Errore /api/export-docx:", err);
-    return res.status(500).json({ success: false, error: "Errore durante la conversione in DOCX" });
-  }
-});
-
-// ===============================
-// DOCX PRESERVE (multipart) - alias operativo
-// ===============================
-app.post("/api/docx/editing-preserve", upload.single("file"), async (req, res) => {
-  try {
-    const html = req.body?.html;
-
-    if (!html || typeof html !== "string") {
-      return res.status(400).json({ success: false, error: "html mancante nel body (multipart)" });
-    }
-
-    let safeHtml = html;
-    safeHtml = safeHtml.replace(/è\"/g, 'è "').replace(/\"/g, '"');
-
-    const wrappedHtml = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-  </head>
-  <body>
-    ${safeHtml}
-  </body>
-</html>`;
-
-    const docxBuffer = await htmlToDocx(wrappedHtml, null, {
-      font: "Times New Roman",
-      fontSize: 24,
-    });
-
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    );
-    res.setHeader("Content-Disposition", 'attachment; filename="OUT.docx"');
-
-    return res.end(docxBuffer);
-  } catch (err) {
-    console.error("Errore /api/docx/editing-preserve:", err);
-    return res.status(500).json({ success: false, error: "Errore durante la conversione in DOCX (preserve)" });
-  }
-});
-
-// ===========================
-// API VALUTAZIONI (GET / POST / DELETE / DOCX) — MANTENUTE
-// ===========================
-app.get("/api/evaluations", async (req, res) => {
-  try {
-    const projectId = req.query.projectId || null;
-    const list = await loadEvaluations();
-
-    let filtered = list;
-    if (projectId) {
-      filtered = list.filter((ev) => !ev.projectId || ev.projectId === projectId);
-    }
-
-    return res.json({ success: true, evaluations: filtered });
-  } catch (err) {
-    console.error("Errore GET /api/evaluations:", err);
-    return res.status(500).json({ success: false, error: "Errore nel caricamento delle valutazioni" });
-  }
-});
-
-app.get("/api/evaluations/:id", async (req, res) => {
-  try {
-    const list = await loadEvaluations();
-    const found = list.find((v) => v.id === req.params.id);
-
-    if (!found) return res.status(404).json({ success: false, error: "Valutazione non trovata" });
-    return res.json({ success: true, evaluation: found });
-  } catch (err) {
-    console.error("Errore GET /api/evaluations/:id:", err);
-    return res.status(500).json({ success: false, error: "Errore lettura valutazione" });
-  }
-});
-
-app.get("/api/evaluations/:id/docx", async (req, res) => {
-  try {
-    const list = await loadEvaluations();
-    const found = list.find((v) => v.id === req.params.id);
-
-    if (!found) return res.status(404).json({ success: false, error: "Valutazione non trovata" });
-
-    const html = found.html || found.evaluationText || "";
-
-    const wrappedHtml = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-  </head>
-  <body>
-    ${html}
-  </body>
-</html>`;
-
-    const docxBuffer = await htmlToDocx(wrappedHtml, null, {
-      font: "Times New Roman",
-      fontSize: 24,
-    });
-
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    );
-
-    const safeTitle = (found.title || "valutazione").replace(/[^a-zA-Z0-9-_ ]/g, "").slice(0, 50);
-    res.setHeader("Content-Disposition", `attachment; filename="${safeTitle || "valutazione"}.docx"`);
-
-    return res.end(docxBuffer);
-  } catch (err) {
-    console.error("Errore GET /api/evaluations/:id/docx:", err);
-    return res.status(500).json({ success: false, error: "Errore export DOCX valutazione" });
-  }
-});
-
-app.post("/api/evaluations", async (req, res) => {
-  try {
-    const {
-      projectId = null,
-      fileName = null,
-      title = "Valutazione",
-      author = "",
-      evaluationText = "",
-      meta = {},
-    } = req.body;
-
-    const list = await loadEvaluations();
-
-    const newEval = {
-      id: Date.now().toString(),
-      projectId,
-      fileName,
-      title,
-      author,
-      evaluationText,
-      html: evaluationText,
-      meta,
-      date: new Date().toISOString(),
-    };
-
-    list.push(newEval);
-    await saveEvaluations(list);
-
-    return res.json({ success: true, evaluation: newEval });
-  } catch (err) {
-    console.error("Errore POST /api/evaluations:", err);
-    return res.status(500).json({ success: false, error: "Errore nel salvataggio della valutazione" });
-  }
-});
-
-app.delete("/api/evaluations/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const list = await loadEvaluations();
-
-    const newList = list.filter((ev) => ev.id !== id);
-    await saveEvaluations(newList);
-
-    return res.json({ success: true });
-  } catch (err) {
-    console.error("Errore DELETE /api/evaluations/:id:", err);
-    return res.status(500).json({ success: false, error: "Errore nella cancellazione della valutazione" });
-  }
-});
-
-// ===============================
-// CORE: Editing Fermento (riusabile per job)
-// ===============================
-async function runEditingFermento({
-  openai,
-  systemForChunk,
-  batches,
-  outputParts,
-  originalParagraphs,
-  normalizedParagraphs,
-}) {
-  console.log("EDITING BATCHES:", batches.length);
-
-   // Flag: di default OFF (non cambia nulla se non lo attivi su Render)
-  const TWO_PASS_EDITING = String(process.env.TWO_PASS_EDITING || "").toLowerCase() === "true"
-    || String(process.env.TWO_PASS_EDITING || "") === "1";
-
-  // Carica i prompt 2-pass se presenti (fallback sicuro al single-pass)
-  let PASS1_SYSTEM = "";
-  let PASS2_SYSTEM = "";
-  try {
-    // usa path relativo alla root server (index.js è in server/)
-    const p1Path = new URL("./prompts/editing-originale-PASS1-riscrittura.txt", import.meta.url);
-    const p2Path = new URL("./prompts/editing-originale-PASS2-riconciliazione.txt", import.meta.url);
-    PASS1_SYSTEM = fs.readFileSync(p1Path, "utf8");
-    PASS2_SYSTEM = fs.readFileSync(p2Path, "utf8");
-  } catch (e) {
-    console.log("WARN two-pass prompts not found -> TWO_PASS_EDITING will fallback to single-pass.", e?.message || e);
-    PASS1_SYSTEM = "";
-    PASS2_SYSTEM = "";
-  }
-
-  async function editSingleParagraph(pHtml) {
-    // --- SINGLE PASS (comportamento attuale) ---
-    async function singlePass() {
-      const userMsg = [
-        "Devi riscrivere SOLO questo singolo paragrafo.",
-        "VINCOLI:",
-        "- Devi restituire ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
-        "- Vietato creare più paragrafi o fonderlo con altri.",
-        "- Vietato aggiungere prefazioni o commenti.",
-        "- Tag ammessi: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
-        "",
-        "PARAGRAFO INPUT:",
-        pHtml,
-      ].join("\n");
-
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        messages: [
-          { role: "system", content: systemForChunk },
-          { role: "user", content: userMsg },
-        ],
-      });
-
-      const ai = completion.choices?.[0]?.message?.content?.trim() || "";
-      return normalizeAiParagraph(ai);
-    }
-
-    // Se flag OFF o prompt mancanti -> single-pass (zero rischio)
-    if (!TWO_PASS_EDITING || !PASS1_SYSTEM || !PASS2_SYSTEM) {
-      return await singlePass();
-    }
-
-    // --- TWO PASS ---
-    try {
-      // PASS 1: riscrittura
-      const pass1User = [
-        "INPUT:",
-        pHtml,
-        "",
-        "RICORDA: restituisci SOLO un singolo <p>...</p> (uno e uno solo).",
-      ].join("\n");
-
-      const c1 = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        messages: [
-          { role: "system", content: PASS1_SYSTEM },
-          { role: "user", content: pass1User },
-        ],
-      });
-
-      const draft = normalizeAiParagraph(c1.choices?.[0]?.message?.content?.trim() || "");
-
-      // PASS 2: riconciliazione (originale vs draft)
-      const pass2User = [
-        "(A) ORIGINALE:",
-        pHtml,
-        "",
-        "(B) RISCRITTURA PROPOSTA:",
-        draft,
-        "",
-        "OUTPUT: restituisci SOLO un singolo <p>...</p> (uno e uno solo).",
-      ].join("\n");
-
-      const c2 = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        messages: [
-          { role: "system", content: PASS2_SYSTEM },
-          { role: "user", content: pass2User },
-        ],
-      });
-
-      const finalP = normalizeAiParagraph(c2.choices?.[0]?.message?.content?.trim() || "");
-
-      // Se per qualunque motivo esce vuoto, almeno torna draft
-      return finalP || draft || (await singlePass());
-    } catch (e) {
-      console.log("WARN two-pass failed -> fallback single-pass.", e?.message || e);
-      return await singlePass();
-    }
-  }
-
-
-  const CONCURRENCY = 1;
-
-  async function processOneBatch(b) {
-    const batch = batches[b];
-    const batchInput = batch.map((x) => x.pHtml).join("\n");
-        // TWO-PASS: forza paragrafo-per-paragrafo (usa editSingleParagraph che ora fa 2 chiamate)
-    if (TWO_PASS_EDITING) {
-      console.log(`TWO_PASS_EDITING ON -> bypass batch ${b + 1}/${batches.length}, paras: ${batch.length}`);
-      for (const item of batch) {
-        const pOut = await editSingleParagraph(item.pHtml);
-        outputParts[item.idx] = pOut;
-      }
-      return;
-    }
-
-
-    const userMsg = [
-      "Devi riscrivere i paragrafi qui sotto.",
-      "VINCOLI ASSOLUTI:",
-      `- Devi restituire ESATTAMENTE ${batch.length} elementi in un JSON array (solo JSON, nessun altro testo).`,
-      "- Ogni elemento dell'array deve essere una stringa che contiene ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
-      "- Devi mantenere ESATTAMENTE lo stesso ordine degli input.",
-      "- Vietato unire o spezzare paragrafi.",
-      "- Vietato aggiungere prefazioni, commenti, markdown o backticks.",
-      "- Tag ammessi dentro i <p>: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
-      "",
-      "INPUT (paragrafi <p>...</p> uno dopo l'altro):",
-      batchInput,
-    ].join("\n");
-
-    console.log(`EDITING batch ${b + 1}/${batches.length} - paras: ${batch.length}`);
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      messages: [
-        { role: "system", content: systemForChunk },
-        { role: "user", content: userMsg },
-      ],
-    });
-
-    let aiText = completion.choices?.[0]?.message?.content?.trim() || "";
-    aiText = aiText.replace(/^```(?:json)?\s*/i, "").replace(/```[\s\r\n]*$/i, "").trim();
-
-    let pList = [];
-    try {
-      const parsed = JSON.parse(aiText);
-      if (Array.isArray(parsed)) pList = parsed;
-    } catch (_e) {
-      pList = [];
-    }
-
-    if (pList.length !== batch.length) {
-      console.log("WARN batch mismatch -> retry once. expected:", batch.length, "got:", pList.length);
-
-      const retryMsg = [
-        "ERRORE: prima non hai restituito il JSON corretto o il numero corretto di elementi.",
-        `Devi restituire SOLO un JSON array di lunghezza ESATTA ${batch.length}.`,
-        "Ogni elemento deve essere una stringa con ESATTAMENTE UN SOLO <p>...</p>.",
-        "Nessun altro testo. Nessun markdown. Nessun backtick.",
-        "",
-        "INPUT:",
-        batchInput,
-      ].join("\n");
-
-      const retry = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        messages: [
-          { role: "system", content: systemForChunk },
-          { role: "user", content: retryMsg },
-        ],
-      });
-
-      let retryText = retry.choices?.[0]?.message?.content?.trim() || "";
-      retryText = retryText.replace(/^```(?:json)?\s*/i, "").replace(/```[\s\r\n]*$/i, "").trim();
-
-      pList = [];
-      try {
-        const parsedRetry = JSON.parse(retryText);
-        if (Array.isArray(parsedRetry)) pList = parsedRetry;
-      } catch (_e2) {
-        pList = [];
-      }
-    }
-
-    if (pList.length !== batch.length) {
-      console.log("ERROR batch mismatch persists -> fallback single-paragraph.");
-      for (const item of batch) {
-        const pOut = await editSingleParagraph(item.pHtml);
-        outputParts[item.idx] = pOut;
-      }
-      return;
-    }
-
-    for (let j = 0; j < batch.length; j++) {
-      outputParts[batch[j].idx] = normalizeAiParagraph(String(pList[j] ?? ""));
-    }
-  }
-
-  let next = 0;
-  async function worker() {
-    while (next < batches.length) {
-      const b = next++;
-      await processOneBatch(b);
-    }
-  }
-  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
-
-  const out = outputParts.map((p) => (p == null ? "<p></p>" : p)).join("\n");
-
-  return {
-    out: out.trim(),
-    meta: {
-      docxFlow: true,
-      paragraphsOriginal: originalParagraphs.length,
-      paragraphsNormalized: normalizedParagraphs.length,
-    },
-  };
-}
-
-// ===============================
-// CORE AI (riusabile per job: evita fetch interno)
+// AI CORE
 // ===============================
 async function runAiCore(body) {
-  // Replica minima della parte iniziale di /api/ai:
   const {
-    text = "",
-    inputText = "",
-    html = "",
-    inputHtml = "",
     mode,
+    text = "",
+    html = "",
     projectTitle = "",
     projectAuthor = "",
-    projectId = null,
-    useEvaluationForEditing = false,
-    currentEvaluation = "",
-    graphicProfile = "Narrativa contemporanea",
-  } = body || {};
+  } = body;
 
-  // TESTO EFFETTIVO: primo campo non vuoto
-  let textEffective = typeof text === "string" ? text : String(text || "");
-  if (!textEffective.trim()) {
-    const a = typeof inputText === "string" ? inputText : String(inputText || "");
-    const b = typeof html === "string" ? html : String(html || "");
-    const c = typeof inputHtml === "string" ? inputHtml : String(inputHtml || "");
-    textEffective = a?.trim() ? a : b?.trim() ? b : c?.trim() ? c : "";
-  }
+  const textEffective = text || html || "";
 
-    // 1) VALUTAZIONE
-  if (mode === "valutazione" || mode === "valutazione-manoscritto") {
-    const valutazionePrompt = readPromptFile("valutazione-fermento.txt");
-    if (!valutazionePrompt.trim()) {
-      throw new Error("Prompt valutazione-fermento.txt mancante o vuoto");
-    }
+  // -------- VALUTAZIONE --------
+  if (mode === "valutazione") {
+    const prompt = readPromptFile("valutazione-fermento.txt");
+    const chunks = chunkText(textEffective);
+    const out = [];
 
-    let topListSnippet = "";
-    try {
-      const topList = await loadMarketTopList();
-      if (Array.isArray(topList) && topList.length > 0) {
-        topListSnippet = JSON.stringify(topList).slice(0, 15000);
-      }
-    } catch (err) {
-      console.error("Errore nel caricamento Top 10 mercato:", err);
-    }
-
-    const chunks = chunkText(textEffective, 80000);
-    console.log("VALUTAZIONE (job): numero chunks:", chunks.length);
-
-    const partialAnalyses = [];
-    for (let i = 0; i < chunks.length; i++) {
-      const sectionHeader =
-        `SEZIONE ${i + 1}/${chunks.length}\n` +
-        `Titolo: ${projectTitle || "Titolo mancante"}\n` +
-        `Autore: ${projectAuthor || "Autore mancante"}\n`;
-
-      const p = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+    for (const c of chunks) {
+      const r = await openai.chat.completions.create({
+        model: AI_MODEL,
         temperature: 0,
         messages: [
-          { role: "system", content: valutazionePrompt + "\n\n[FASE: ANALISI SEZIONE]\n" + sectionHeader },
-          { role: "user", content: chunks[i] },
+          { role: "system", content: prompt },
+          { role: "user", content: c },
+        ],
+      });
+      out.push(r.choices[0].message.content);
+    }
+    return out.join("\n\n");
+  }
+
+  // -------- EDITING ORIGINALE --------
+  if (mode === "editing-originale") {
+    const systemPrompt = readPromptFile("editing-originale.txt");
+
+    let htmlEffective = textEffective;
+    if (!looksLikeDocxHtml(htmlEffective)) {
+      throw new Error("Editing supportato solo su HTML DOCX");
+    }
+
+    const paragraphs = extractParagraphs(htmlEffective);
+    const output = new Array(paragraphs.length);
+
+    for (let i = 0; i < paragraphs.length; i++) {
+      const p = paragraphs[i];
+      if (!stripTags(p)) {
+        output[i] = "<p></p>";
+        continue;
+      }
+
+      const r = await openai.chat.completions.create({
+        model: AI_MODEL,
+        temperature: 0,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: p },
         ],
       });
 
-      partialAnalyses.push(p.choices?.[0]?.message?.content?.trim() || "");
+      output[i] = normalizeAiParagraph(r.choices[0].message.content);
     }
 
-    const synthesisUser =
-      `DATI:\n` +
-      `Titolo: ${projectTitle || "Titolo mancante"}\n` +
-      `Autore: ${projectAuthor || "Autore mancante"}\n\n` +
-      (topListSnippet ? `DATI DI MERCATO (JSON):\n${topListSnippet}\n\n` : "") +
-      `ANALISI PARZIALI:\n` +
-      partialAnalyses.join("\n\n--- SEZIONE ---\n\n");
-
-    const final = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      temperature: 0,
-      messages: [
-        { role: "system", content: valutazionePrompt + "\n\n[FASE: SINTESI FINALE]" },
-        { role: "user", content: synthesisUser },
-      ],
-    });
-
-    const finalText = final.choices?.[0]?.message?.content?.trim() || "Errore nella valutazione finale.";
-    const fixedText = applyTypographicFixes(finalText);
-
-    const evaluations = await loadEvaluations();
-    const newEval = {
-      id: Date.now().toString(),
-      projectId: projectId || null,
-      title: projectTitle || "Titolo mancante",
-      author: projectAuthor || "Autore mancante",
-      date: new Date().toISOString(),
-      html: fixedText,
-    };
-    evaluations.push(newEval);
-    await saveEvaluations(evaluations);
-
-    // NB: per i job salviamo SOLO "result" (come faceva il fetch interno prima)
-    return fixedText;
+    return output.join("\n");
   }
 
-  // 2) EDITING FERMENTO
-  if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
-    let systemForChunk = readPromptFile("editing-fermento-B.txt");
-    if (!systemForChunk.trim()) {
-      throw new Error("Prompt editing-fermento-B.txt mancante o vuoto");
-    }
-
-    if (useEvaluationForEditing && currentEvaluation && currentEvaluation.trim().length > 0) {
-      const evaluationSnippet = currentEvaluation.trim().slice(0, 2000);
-      systemForChunk +=
-        "\n\nISTRUZIONI AGGIUNTIVE (OBBLIGATORIE): applica prioritariamente questo estratto di VALUTAZIONE EDITORIALE:\n\n" +
-        evaluationSnippet;
-    }
-
-    let htmlEffective = textEffective;
-
-    if (!looksLikeDocxHtml(htmlEffective)) {
-      const maybePlainText =
-        typeof htmlEffective === "string" &&
-        htmlEffective.trim().length > 0 &&
-        !htmlEffective.includes("<p");
-
-      if (maybePlainText) {
-        const paragraphs = htmlEffective
-          .split(/\r?\n\s*\r?\n|\r?\n{2,}/)
-          .map((s) => s.trim())
-          .filter(Boolean);
-
-        htmlEffective = paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join("\n");
-      }
-    }
-
-    if (!looksLikeDocxHtml(htmlEffective)) {
-      throw new Error("Editing-fermento supportato solo su input DOCX (HTML con <p>...). Input non valido.");
-    }
-
-    const originalParagraphs = extractParagraphs(htmlEffective);
-
-    const normalizedParagraphs = [];
-    for (const p of originalParagraphs) normalizedParagraphs.push(...splitParagraphOnBr(p));
-
-    console.log(
-      "EDITING DOCX FLOW (job): paragraphs original:",
-      originalParagraphs.length,
-      "normalized:",
-      normalizedParagraphs.length
-    );
-
-    const outputParts = new Array(normalizedParagraphs.length).fill(null);
-
-    const BATCH_MAX_PARAS = 10;
-    const BATCH_MAX_CHARS = 9000;
-
-    const editable = [];
-    for (let i = 0; i < normalizedParagraphs.length; i++) {
-      const pHtml = normalizedParagraphs[i];
-      const textOnly = stripTagsToText(pHtml);
-
-      if (!textOnly) {
-        outputParts[i] = "<p></p>";
-        continue;
-      }
-      if (isChapterTitleParagraph(pHtml)) {
-        outputParts[i] = `<p>${stripTagsToText(pHtml)}</p>`;
-        continue;
-      }
-      editable.push({ idx: i, pHtml });
-    }
-
-    const batches = [];
-    let cur = [];
-    let curChars = 0;
-
-    for (const item of editable) {
-      const len = item.pHtml.length;
-      const exceed = cur.length >= BATCH_MAX_PARAS || curChars + len > BATCH_MAX_CHARS;
-
-      if (exceed && cur.length > 0) {
-        batches.push(cur);
-        cur = [];
-        curChars = 0;
-      }
-
-      cur.push(item);
-      curChars += len;
-    }
-    if (cur.length > 0) batches.push(cur);
-
-    const { out } = await runEditingFermento({
-      openai,
-      systemForChunk,
-      batches,
-      outputParts,
-      originalParagraphs,
-      normalizedParagraphs,
-    });
-
-    // NB: per i job salviamo SOLO "result" (stringa HTML)
-    return out;
-  }
-
-  // 3) TRADUZIONE ITA->ENG
-  if (mode === "traduzione-it-en") {
-    const translationPrompt = readPromptFile("traduzione-it-en.txt");
-    if (!translationPrompt.trim()) {
-      throw new Error("Prompt traduzione-it-en.txt mancante o vuoto");
-    }
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+  // -------- TRADUZIONE / RISCRITTURA --------
+  if (mode === "traduzione-riscrittura") {
+    const prompt = readPromptFile("traduzione-riscrittura.txt");
+    const r = await openai.chat.completions.create({
+      model: AI_MODEL,
       temperature: 0,
       messages: [
-        { role: "system", content: translationPrompt },
+        { role: "system", content: prompt },
         { role: "user", content: textEffective },
       ],
     });
-
-    const aiText = completion.choices?.[0]?.message?.content?.trim() || "Errore: nessun testo generato.";
-
-    // NB: per i job salviamo SOLO "result"
-    return aiText;
+    return r.choices[0].message.content;
   }
 
-  throw new Error(`Mode non supportata: ${mode || "(mancante)"}`);
+  throw new Error("Mode non supportata");
 }
 
-
 // ===============================
-// API AI PRINCIPALE
+// JOB API
 // ===============================
-app.post("/api/ai", async (req, res) => {
-  console.log(">>> /api/ai chiamata, mode:", req.body?.mode);
+app.post("/api/ai-job/start", async (req, res) => {
+  if (!redis) return res.status(500).json({ success: false });
+  const jobId = uuidv4();
+  await setJob(jobId, { status: "queued", progress: "0" });
+  await redis.set(
+    `job:${jobId}:payload`,
+    JSON.stringify(req.body),
+    "EX",
+    JOB_TTL_SECONDS
+  );
+  setImmediate(() => processJob(jobId));
+  res.json({ success: true, jobId });
+});
 
-  try {
-    const {
-      text = "",
-      inputText = "",
-      html = "",
-      inputHtml = "",
-      mode,
-      projectTitle = "",
-      projectAuthor = "",
-      projectId = null,
-      useEvaluationForEditing = false,
-      currentEvaluation = "",
-      graphicProfile = "Narrativa contemporanea", // compat
-    } = req.body || {};
+app.get("/api/ai-job/status", async (req, res) => {
+  const job = await getJob(req.query.jobId);
+  if (!job) return res.status(404).json({ success: false });
+  res.json({ success: true, ...job });
+});
 
-    // TESTO EFFETTIVO: primo campo non vuoto
-    let textEffective = typeof text === "string" ? text : String(text || "");
-    if (!textEffective.trim()) {
-      const a = typeof inputText === "string" ? inputText : String(inputText || "");
-      const b = typeof html === "string" ? html : String(html || "");
-      const c = typeof inputHtml === "string" ? inputHtml : String(inputHtml || "");
-      textEffective = a?.trim() ? a : b?.trim() ? b : c?.trim() ? c : "";
-    }
-
-    console.log("AI textEffective length:", textEffective.length);
-
-    // 1) VALUTAZIONE
-    if (mode === "valutazione" || mode === "valutazione-manoscritto") {
-      const valutazionePrompt = readPromptFile("valutazione-fermento.txt");
-      if (!valutazionePrompt.trim()) {
-        return res.status(500).json({ success: false, error: "Prompt valutazione-fermento.txt mancante o vuoto" });
-      }
-
-      let topListSnippet = "";
-      try {
-        const topList = await loadMarketTopList();
-        if (Array.isArray(topList) && topList.length > 0) {
-          topListSnippet = JSON.stringify(topList).slice(0, 15000);
-        }
-      } catch (err) {
-        console.error("Errore nel caricamento Top 10 mercato:", err);
-      }
-
-      const chunks = chunkText(textEffective, 80000);
-      console.log("VALUTAZIONE: numero chunks:", chunks.length);
-
-      const partialAnalyses = [];
-
-      for (let i = 0; i < chunks.length; i++) {
-        const sectionHeader =
-          `SEZIONE ${i + 1}/${chunks.length}\n` +
-          `Titolo: ${projectTitle || "Titolo mancante"}\n` +
-          `Autore: ${projectAuthor || "Autore mancante"}\n`;
-
-        const p = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          temperature: 0,
-          messages: [
-            { role: "system", content: valutazionePrompt + "\n\n[FASE: ANALISI SEZIONE]\n" + sectionHeader },
-            { role: "user", content: chunks[i] },
-          ],
-        });
-
-        partialAnalyses.push(p.choices?.[0]?.message?.content?.trim() || "");
-      }
-
-      const synthesisUser =
-        `DATI:\n` +
-        `Titolo: ${projectTitle || "Titolo mancante"}\n` +
-        `Autore: ${projectAuthor || "Autore mancante"}\n\n` +
-        (topListSnippet ? `DATI DI MERCATO (JSON):\n${topListSnippet}\n\n` : "") +
-        `ANALISI PARZIALI:\n` +
-        partialAnalyses.join("\n\n--- SEZIONE ---\n\n");
-
-      const final = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        messages: [
-          { role: "system", content: valutazionePrompt + "\n\n[FASE: SINTESI FINALE]" },
-          { role: "user", content: synthesisUser },
-        ],
-      });
-
-      const finalText = final.choices?.[0]?.message?.content?.trim() || "Errore nella valutazione finale.";
-      const fixedText = applyTypographicFixes(finalText);
-
-      const evaluations = await loadEvaluations();
-      const newEval = {
-        id: Date.now().toString(),
-        projectId: projectId || null,
-        title: projectTitle || "Titolo mancante",
-        author: projectAuthor || "Autore mancante",
-        date: new Date().toISOString(),
-        html: fixedText,
-      };
-      evaluations.push(newEval);
-      await saveEvaluations(evaluations);
-
-      return res.json({ success: true, result: fixedText, savedId: newEval.id });
-    }
-
-    // 2) EDITING FERMENTO (DOCX html con <p>)
-    if (mode === "editing-fermento" || mode === "editing" || mode === "editing-default") {
-      let systemForChunk = readPromptFile("editing-fermento-B.txt");
-      if (!systemForChunk.trim()) {
-        return res.status(500).json({ success: false, error: "Prompt editing-fermento-B.txt mancante o vuoto" });
-      }
-
-      if (useEvaluationForEditing && currentEvaluation && currentEvaluation.trim().length > 0) {
-        const evaluationSnippet = currentEvaluation.trim().slice(0, 2000);
-        systemForChunk +=
-          "\n\nISTRUZIONI AGGIUNTIVE (OBBLIGATORIE): applica prioritariamente questo estratto di VALUTAZIONE EDITORIALE:\n\n" +
-          evaluationSnippet;
-      }
-
-      let htmlEffective = textEffective;
-
-      if (!looksLikeDocxHtml(htmlEffective)) {
-        const maybePlainText =
-          typeof htmlEffective === "string" &&
-          htmlEffective.trim().length > 0 &&
-          !htmlEffective.includes("<p");
-
-        if (maybePlainText) {
-          const paragraphs = htmlEffective
-            .split(/\r?\n\s*\r?\n|\r?\n{2,}/)
-            .map((s) => s.trim())
-            .filter(Boolean);
-
-          htmlEffective = paragraphs.map((p) => `<p>${escapeHtml(p)}</p>`).join("\n");
-        }
-      }
-
-      if (!looksLikeDocxHtml(htmlEffective)) {
-        return res.status(400).json({
-          success: false,
-          error: "Editing-fermento supportato solo su input DOCX (HTML con <p>...). L’input ricevuto non sembra HTML da DOCX.",
-        });
-      }
-
-      const originalParagraphs = extractParagraphs(htmlEffective);
-
-      const normalizedParagraphs = [];
-      for (const p of originalParagraphs) normalizedParagraphs.push(...splitParagraphOnBr(p));
-
-      console.log(
-        "EDITING DOCX FLOW: paragraphs original:",
-        originalParagraphs.length,
-        "normalized:",
-        normalizedParagraphs.length
-      );
-
-      const outputParts = new Array(normalizedParagraphs.length).fill(null);
-
-      const BATCH_MAX_PARAS = 10;
-      const BATCH_MAX_CHARS = 9000;
-
-      const editable = [];
-      for (let i = 0; i < normalizedParagraphs.length; i++) {
-        const pHtml = normalizedParagraphs[i];
-        const textOnly = stripTagsToText(pHtml);
-
-        if (!textOnly) {
-          outputParts[i] = "<p></p>";
-          continue;
-        }
-        if (isChapterTitleParagraph(pHtml)) {
-          outputParts[i] = `<p>${stripTagsToText(pHtml)}</p>`;
-          continue;
-        }
-        editable.push({ idx: i, pHtml });
-      }
-
-      const batches = [];
-      let cur = [];
-      let curChars = 0;
-
-      for (const item of editable) {
-        const len = item.pHtml.length;
-        const exceed = cur.length >= BATCH_MAX_PARAS || curChars + len > BATCH_MAX_CHARS;
-
-        if (exceed && cur.length > 0) {
-          batches.push(cur);
-          cur = [];
-          curChars = 0;
-        }
-
-        cur.push(item);
-        curChars += len;
-      }
-      if (cur.length > 0) batches.push(cur);
-
-      const { out, meta } = await runEditingFermento({
-        openai,
-        systemForChunk,
-        batches,
-        outputParts,
-        originalParagraphs,
-        normalizedParagraphs,
-      });
-
-      return res.json({ success: true, result: out, meta });
-    }
-
-    // 3) TRADUZIONE ITA->ENG
-    if (mode === "traduzione-it-en") {
-      const translationPrompt = readPromptFile("traduzione-it-en.txt");
-      if (!translationPrompt.trim()) {
-        return res.status(500).json({ success: false, error: "Prompt traduzione-it-en.txt mancante o vuoto" });
-      }
-
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0,
-        messages: [
-          { role: "system", content: translationPrompt },
-          { role: "user", content: textEffective },
-        ],
-      });
-
-      const aiText =
-        completion.choices?.[0]?.message?.content?.trim() || "Errore: nessun testo generato.";
-
-      return res.json({ success: true, result: aiText });
-    }
-
-    return res.status(400).json({ success: false, error: `Mode non supportata: ${mode || "(mancante)"}` });
-  } catch (err) {
-    console.error("Errore /api/ai:", err);
-    let msg = "Errore interno nel server AI";
-    if (err.response?.data?.error?.message) msg = err.response.data.error.message;
-    else if (err.message) msg = err.message;
-
-    return res.status(500).json({ success: false, error: msg });
-  }
+app.get("/api/ai-job/result", async (req, res) => {
+  const raw = await redis.get(`job:${req.query.jobId}:result`);
+  if (!raw) return res.status(404).json({ success: false });
+  res.json({ success: true, result: JSON.parse(raw) });
 });
 
 // ===============================
-// AVVIO SERVER
+// START
 // ===============================
 async function main() {
   await initRedis();
-
   app.listen(PORT, () => {
-    console.log("### FIRMA BACKEND FERMENTO: INDEX.JS MODIFICATO OGGI ###");
-    console.log(`Fermento AI backend in ascolto su http://localhost:${PORT}`);
+    console.log("🚀 FERMENTO BACKEND AVVIATO SU", PORT);
   });
 }
 
-main().catch((e) => {
-  console.error("❌ Fatal startup error:", e?.message || e);
-  process.exit(1);
-});
+main();
