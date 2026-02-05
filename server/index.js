@@ -206,7 +206,7 @@ async function runAiCore(body) {
   }
 
 
-  const textEffective = text || html || "";
+  const textEffective = html || text || "";
 
   // -------- VALUTAZIONE --------
   if (modeEffective === "valutazione") {
