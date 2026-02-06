@@ -253,7 +253,7 @@ async function runAiCore(body) {
     projectAuthor = "",
   } = body;
 
-    // ---- NORMALIZZAZIONE MODE (compatibilità frontend) ----
+     // ---- NORMALIZZAZIONE MODE (compatibilità frontend) ----
   let modeEffective = mode;
 
   // alias EDITING (frontend storico)
@@ -265,12 +265,14 @@ async function runAiCore(body) {
     modeEffective = "editing-originale";
   }
 
-  // alias TRADUZIONE
+  // alias RISCRITTURA/TRADUZIONE (frontend)
   if (
     modeEffective === "traduzione" ||
-    modeEffective === "traduzione-riscrittura-fermento"
+    modeEffective === "traduzione-riscrittura-fermento" ||
+    modeEffective === "traduzione-riscrittura" ||
+    modeEffective === "riscrittura-traduzione"
   ) {
-    modeEffective = "traduzione-riscrittura";
+    modeEffective = "riscrittura-traduzione";
   }
 
 
@@ -330,9 +332,10 @@ async function runAiCore(body) {
     return output.join("\n");
   }
 
-  // -------- TRADUZIONE / RISCRITTURA --------
-  if (modeEffective === "traduzione-riscrittura") {
-    const prompt = readPromptFile("traduzione-riscrittura.txt");
+    // -------- RISCRITTURA / TRADUZIONE (DOCX grandi OK via JOB) --------
+  if (modeEffective === "riscrittura-traduzione") {
+    const prompt = readPromptFile("riscrittura-traduzione.txt");
+
     const r = await openai.chat.completions.create({
       model: AI_MODEL,
       temperature: 0,
@@ -341,8 +344,10 @@ async function runAiCore(body) {
         { role: "user", content: textEffective },
       ],
     });
+
     return r.choices[0].message.content;
   }
+
 
   throw new Error("Mode non supportata");
 }
