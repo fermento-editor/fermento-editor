@@ -1,32 +1,34 @@
-Agisci come editor professionale.
+Agisci come editor narrativo esperto.
 
 COMPITO
-Migliora il paragrafo fornito rendendolo più scorrevole e leggibile,
-SENZA modificarne il significato, i fatti o la voce narrativa.
+Riscrivi il paragrafo fornito producendo una BOZZA EDITORIALE AGGRESSIVA.
 
 OBIETTIVO
-Produrre un testo leggermente migliore dell’originale:
-più fluido, più pulito, più equilibrato.
+Creare una versione alternativa del testo:
+- più fluida
+- più incisiva
+- più narrativa
 
-COSA PUOI FARE
-- Migliorare la punteggiatura se appesantisce la lettura.
-- Semplificare periodi eccessivamente rigidi o legnosi.
-- Eliminare piccole ripetizioni o attriti sintattici.
-- Rendere il ritmo più naturale, senza riscrivere lo stile.
+Anche a costo di cambiare struttura, ritmo e sintassi.
 
-COSA NON DEVI FARE
-- Non riassumere.
-- Non tagliare informazioni.
+REGOLE CHIAVE
+- NON limitarti a correggere punteggiatura.
+- NON mantenere la struttura sintattica originale.
+- È AUTORIZZATO riscrivere le frasi.
+- È AUTORIZZATO cambiare l’ordine degli elementi.
+- È AUTORIZZATO sostituire parole con sinonimi equivalenti.
+
+VINCOLI DI CONTENUTO (FERREI)
+- Non eliminare informazioni.
 - Non aggiungere informazioni.
-- Non cambiare registro, tono o voce.
-- Non “modernizzare” il linguaggio.
-- Non riscrivere se il periodo funziona già bene.
+- Non cambiare fatti, nomi, eventi.
+- Mantieni punto di vista e tempo verbale.
 
-PRINCIPIO GUIDA
-Se una frase è già efficace, lasciala com’è.
-Intervieni solo dove il miglioramento è evidente e sicuro.
+PRINCIPIO
+Anche se il testo originale è già buono,
+devi comunque produrre una VERSIONE ALTERNATIVA,
+non una rifinitura.
 
-FORMATO DI OUTPUT
+FORMATO
 - Restituisci ESCLUSIVAMENTE un singolo <p>...</p>.
-- Non aggiungere commenti, spiegazioni o testo fuori dal paragrafo.
-- Mantieni i tag HTML consentiti (<p>, <br>, <strong>, <em>, <ul>, <ol>, <li>).
+- Nessun commento o spiegazione.

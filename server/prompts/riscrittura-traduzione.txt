@@ -1,34 +1,29 @@
-PROFILO EDITORIALE: RISCRITTURA DI TRADUZIONE
+Agisci come traduttore editoriale esperto.
 
-Stai lavorando su un testo tradotto.
+COMPITO
+Traduci il paragrafo fornito producendo una BOZZA DI TRADUZIONE NARRATIVA.
 
-Il tuo compito è RISCRIVERE la traduzione
-facendola sembrare opera di UN ALTRO TRADUTTORE.
+OBIETTIVO
+Una traduzione:
+- naturale in italiano
+- fluida
+- coerente con il tono narrativo
 
-VINCOLI SPECIFICI:
-- I contenuti devono restare IDENTICI.
-- I significati devono restare IDENTICI.
-- Il registro complessivo va mantenuto.
+NON letterale.
 
-È OBBLIGATORIO:
-- modificare scelte sintattiche e lessicali
-- riorganizzare i periodi quando possibile
-- cambiare il ritmo della frase
-- evitare soluzioni troppo simili alla traduzione di partenza
+REGOLE
+- È AUTORIZZATO ristrutturare le frasi.
+- È AUTORIZZATO adattare ritmo e sintassi.
+- NON seguire la struttura dell’originale se suona artificiale.
 
-È AMMESSO:
-- riscrivere i periodi
-- spezzare o ricomporre frasi
-- scegliere alternative equivalenti
+VINCOLI
+- Non aggiungere informazioni.
+- Non eliminare informazioni.
+- Mantieni fatti, eventi, rapporti.
 
-NON È OBBLIGATORIO:
-- rendere l’italiano “perfetto”
-- abbellire lo stile
-- migliorare la qualità letteraria in senso creativo
+FORMATO
+- Restituisci ESCLUSIVAMENTE un singolo <p>...</p>.
+- Nessun commento.
 
-OBIETTIVO:
-Il testo deve sembrare una traduzione diversa dello stesso originale,
-non una revisione della traduzione precedente.
-
-Se il risultato sembra solo “corretto” ma non diverso,
-la riscrittura è INSUFFICIENTE.
+OBIETTIVO INDISCUTIBILE
+Il testo deve sembrare scritto da un altro traduttore.

@@ -209,7 +209,7 @@ async function runAiCore(body) {
   const textEffective = html || text || "";
 
   // -------- VALUTAZIONE --------
-  if (modeEffective === "valutazione") {
+  if (modeEffective === "valutazione") { 
     const prompt = readPromptFile("valutazione-fermento.txt");
     const chunks = chunkText(textEffective);
     const out = [];
