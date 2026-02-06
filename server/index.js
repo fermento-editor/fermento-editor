@@ -574,6 +574,40 @@ async function runAiCore(body) {
 
       // -------- RISCRITTURA / TRADUZIONE (DOCX grandi OK via pipeline 600K) --------
   if (modeEffective === "riscrittura-traduzione") {
+
+      // -------- TRADUZIONE IT -> EN (testo lungo) --------
+  if (modeEffective === "traduzione-it-en") {
+    const prompt = readPromptFile("traduzione-it-en.txt");
+    if (!prompt || !prompt.trim()) {
+      throw new Error("Prompt traduzione-it-en.txt mancante o vuoto");
+    }
+
+    // Se arriva HTML, lo “spoglio” in testo per evitare che traduca tag
+    let textForTranslation = String(textEffective || "");
+    if (looksLikeDocxHtml(textForTranslation)) {
+      textForTranslation = textForTranslation.replace(/<[^>]+>/g, " ");
+      textForTranslation = textForTranslation.replace(/\s+/g, " ").trim();
+    }
+
+    const chunks = chunkText(textForTranslation, 80000);
+    const out = [];
+
+    for (let i = 0; i < chunks.length; i++) {
+      const r = await openai.chat.completions.create({
+        model: AI_MODEL,
+        temperature: 0,
+        messages: [
+          { role: "system", content: prompt },
+          { role: "user", content: chunks[i] },
+        ],
+      });
+
+      out.push(r.choices?.[0]?.message?.content?.trim() || "");
+    }
+
+    return out.join("\n\n");
+  }
+
     const systemPrompt = readPromptFile("riscrittura-traduzione.txt");
     if (!systemPrompt || !systemPrompt.trim()) {
       throw new Error("Prompt riscrittura-traduzione.txt mancante o vuoto");
