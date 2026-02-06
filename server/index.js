@@ -224,6 +224,11 @@ function stripTagsToText(html) {
     .replace(/\u00a0/g, " ")
     .trim();
 }
+function isChapterTitleParagraph(pHtml) {
+  const text = stripTagsToText(pHtml);
+  if (!text) return false;
+  return /^capitolo\b/i.test(text);
+}
 
 
 function normalizeAiParagraph(p) {
