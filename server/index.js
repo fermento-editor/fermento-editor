@@ -83,6 +83,74 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
   }
 });
 
+// ===============================
+// EXPORT HTML -> DOCX
+// ===============================
+app.post("/api/export-docx", async (req, res) => {
+  try {
+    const { html } = req.body || {};
+
+    if (!html || typeof html !== "string") {
+      return res.status(400).json({ success: false, error: "html mancante nel body" });
+    }
+
+    const wrappedHtml = `<!doctype html>
+<html>
+  <head><meta charset="utf-8" /></head>
+  <body>${html}</body>
+</html>`;
+
+    const docxBuffer = await htmlToDocx(wrappedHtml, null, {
+      font: "Times New Roman",
+      fontSize: 24,
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+    res.setHeader("Content-Disposition", 'attachment; filename="document.docx"');
+    return res.end(docxBuffer);
+  } catch (err) {
+    console.error("Errore /api/export-docx:", err);
+    return res.status(500).json({ success: false, error: "Errore durante la conversione in DOCX" });
+  }
+});
+
+// ===============================
+// DOCX PRESERVE (multipart)
+// ===============================
+app.post("/api/docx/editing-preserve", upload.single("file"), async (req, res) => {
+  try {
+    const html = req.body?.html;
+
+    if (!html || typeof html !== "string") {
+      return res.status(400).json({ success: false, error: "html mancante nel body (multipart)" });
+    }
+
+    const wrappedHtml = `<!doctype html>
+<html>
+  <head><meta charset="utf-8" /></head>
+  <body>${html}</body>
+</html>`;
+
+    const docxBuffer = await htmlToDocx(wrappedHtml, null, {
+      font: "Times New Roman",
+      fontSize: 24,
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    );
+    res.setHeader("Content-Disposition", 'attachment; filename="OUT.docx"');
+    return res.end(docxBuffer);
+  } catch (err) {
+    console.error("Errore /api/docx/editing-preserve:", err);
+    return res.status(500).json({ success: false, error: "Errore conversione DOCX preserve" });
+  }
+});
+
 
 const promptsDir = path.join(__dirname, "prompts");
 const dataDir = path.join(__dirname, "data");
