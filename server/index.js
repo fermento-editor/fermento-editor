@@ -198,6 +198,19 @@ function extractParagraphs(html) {
   return html.match(/<p\b[^>]*>[\s\S]*?<\/p>/gi) || [];
 }
 
+// Split <p> con <br> in più <p>
+function splitParagraphOnBr(pHtml) {
+  const inner = pHtml
+    .replace(/^<p\b[^>]*>/i, "")
+    .replace(/<\/p>\s*$/i, "");
+
+  if (!/<br\s*\/?>/i.test(inner)) return [pHtml];
+
+  const parts = inner.split(/<br\s*\/?>/i);
+  return parts.map((part) => `<p>${part}</p>`);
+}
+
+
 function stripTags(html) {
   return html.replace(/<[^>]+>/g, "").trim();
 }
