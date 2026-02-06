@@ -209,6 +209,217 @@ function normalizeAiParagraph(p) {
 }
 
 // ===============================
+// CORE: PROCESSORE PER-DOCX (BATCH + FALLBACK) — SEZIONE 600K (MANTENUTA)
+// ===============================
+async function runDocxParagraphPipeline({
+  openaiClient,
+  systemPrompt,
+  htmlEffective,
+  modeLabel = "DOCX_PIPELINE",
+}) {
+  if (!looksLikeDocxHtml(htmlEffective)) {
+    throw new Error(`${modeLabel} supportato solo su HTML DOCX con <p>...</p>`);
+  }
+
+  const originalParagraphs = extractParagraphs(htmlEffective);
+
+  const normalizedParagraphs = [];
+  for (const p of originalParagraphs) normalizedParagraphs.push(...splitParagraphOnBr(p));
+
+  console.log(
+    `${modeLabel}: paragraphs original:`,
+    originalParagraphs.length,
+    "normalized:",
+    normalizedParagraphs.length
+  );
+
+  const outputParts = new Array(normalizedParagraphs.length).fill(null);
+
+  // Filtra paragrafi non editabili
+  const editable = [];
+  for (let i = 0; i < normalizedParagraphs.length; i++) {
+    const pHtml = normalizedParagraphs[i];
+    const textOnly = stripTagsToText(pHtml);
+
+    if (!textOnly) {
+      outputParts[i] = "<p></p>";
+      continue;
+    }
+    if (isChapterTitleParagraph(pHtml)) {
+      outputParts[i] = `<p>${stripTagsToText(pHtml)}</p>`;
+      continue;
+    }
+    editable.push({ idx: i, pHtml });
+  }
+
+  // batching
+  const BATCH_MAX_PARAS = 10;
+  const BATCH_MAX_CHARS = 9000;
+
+  const batches = [];
+  let cur = [];
+  let curChars = 0;
+
+  for (const item of editable) {
+    const len = item.pHtml.length;
+    const exceed = cur.length >= BATCH_MAX_PARAS || curChars + len > BATCH_MAX_CHARS;
+
+    if (exceed && cur.length > 0) {
+      batches.push(cur);
+      cur = [];
+      curChars = 0;
+    }
+
+    cur.push(item);
+    curChars += len;
+  }
+  if (cur.length > 0) batches.push(cur);
+
+  console.log(`${modeLabel}: BATCHES:`, batches.length);
+
+  async function editSingleParagraph(pHtml) {
+    const userMsg = [
+      "Devi trasformare SOLO questo singolo paragrafo.",
+      "VINCOLI:",
+      "- Restituisci ESATTAMENTE UN SOLO <p>...</p> (uno e uno solo).",
+      "- Vietato creare più paragrafi o fonderlo con altri.",
+      "- Vietato aggiungere commenti o markdown.",
+      "- Tag ammessi: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
+      "",
+      "PARAGRAFO INPUT:",
+      pHtml,
+    ].join("\n");
+
+    const completion = await openaiClient.chat.completions.create({
+      model: AI_MODEL,
+      temperature: 0,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMsg },
+      ],
+    });
+
+    const ai = completion.choices?.[0]?.message?.content?.trim() || "";
+    return normalizeAiParagraph(ai);
+  }
+
+  async function processOneBatch(b) {
+    const batch = batches[b];
+    const batchInput = batch.map((x) => x.pHtml).join("\n");
+
+    const userMsg = [
+      "Devi trasformare i paragrafi qui sotto.",
+      "VINCOLI ASSOLUTI:",
+      `- Devi restituire ESATTAMENTE ${batch.length} elementi in un JSON array (solo JSON, nessun altro testo).`,
+      "- Ogni elemento dell'array deve essere una stringa che contiene ESATTAMENTE UN SOLO <p>...</p>.",
+      "- Devi mantenere ESATTAMENTE lo stesso ordine degli input.",
+      "- Vietato unire o spezzare paragrafi.",
+      "- Vietato aggiungere prefazioni, commenti, markdown o backticks.",
+      "- Tag ammessi dentro i <p>: <p>, <br>, <strong>, <em>, <ul>, <ol>, <li>.",
+      "",
+      "INPUT (paragrafi <p>...</p> uno dopo l'altro):",
+      batchInput,
+    ].join("\n");
+
+    console.log(`${modeLabel} batch ${b + 1}/${batches.length} - paras: ${batch.length}`);
+
+    const completion = await openaiClient.chat.completions.create({
+      model: AI_MODEL,
+      temperature: 0,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userMsg },
+      ],
+    });
+
+    let aiText = completion.choices?.[0]?.message?.content?.trim() || "";
+    aiText = aiText.replace(/^```(?:json)?\s*/i, "").replace(/```[\s\r\n]*$/i, "").trim();
+
+    let pList = [];
+    try {
+      const parsed = JSON.parse(aiText);
+      if (Array.isArray(parsed)) pList = parsed;
+    } catch (_e) {
+      pList = [];
+    }
+
+    // retry una volta
+    if (pList.length !== batch.length) {
+      console.log(`${modeLabel} WARN batch mismatch -> retry once. expected:`, batch.length, "got:", pList.length);
+
+      const retryMsg = [
+        "ERRORE: prima non hai restituito il JSON corretto o il numero corretto di elementi.",
+        `Devi restituire SOLO un JSON array di lunghezza ESATTA ${batch.length}.`,
+        "Ogni elemento deve essere una stringa con ESATTAMENTE UN SOLO <p>...</p>.",
+        "Nessun altro testo. Nessun markdown. Nessun backtick.",
+        "",
+        "INPUT:",
+        batchInput,
+      ].join("\n");
+
+      const retry = await openaiClient.chat.completions.create({
+        model: AI_MODEL,
+        temperature: 0,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: retryMsg },
+        ],
+      });
+
+      let retryText = retry.choices?.[0]?.message?.content?.trim() || "";
+      retryText = retryText.replace(/^```(?:json)?\s*/i, "").replace(/```[\s\r\n]*$/i, "").trim();
+
+      pList = [];
+      try {
+        const parsedRetry = JSON.parse(retryText);
+        if (Array.isArray(parsedRetry)) pList = parsedRetry;
+      } catch (_e2) {
+        pList = [];
+      }
+    }
+
+    // fallback per-paragrafo
+    if (pList.length !== batch.length) {
+      console.log(`${modeLabel} ERROR mismatch persists -> fallback single-paragraph for this batch.`);
+      for (const item of batch) {
+        const pOut = await editSingleParagraph(item.pHtml);
+        outputParts[item.idx] = pOut;
+      }
+      return;
+    }
+
+    for (let j = 0; j < batch.length; j++) {
+      outputParts[batch[j].idx] = normalizeAiParagraph(String(pList[j] ?? ""));
+    }
+  }
+
+  // Concorrenza volutamente 1 (stabilità + meno rate-limit)
+  const CONCURRENCY = 1;
+  let next = 0;
+
+  async function worker() {
+    while (next < batches.length) {
+      const b = next++;
+      await processOneBatch(b);
+    }
+  }
+
+  await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+
+  const out = outputParts.map((p) => (p == null ? "<p></p>" : p)).join("\n").trim();
+
+  return {
+    out,
+    meta: {
+      docxFlow: true,
+      paragraphsOriginal: originalParagraphs.length,
+      paragraphsNormalized: normalizedParagraphs.length,
+      batches: batches.length,
+    },
+  };
+}
+
+// ===============================
 // REDIS JOB UTILS
 // ===============================
 async function setJob(jobId, data) {
@@ -332,21 +543,29 @@ async function runAiCore(body) {
     return output.join("\n");
   }
 
-    // -------- RISCRITTURA / TRADUZIONE (DOCX grandi OK via JOB) --------
+      // -------- RISCRITTURA / TRADUZIONE (DOCX grandi OK via pipeline 600K) --------
   if (modeEffective === "riscrittura-traduzione") {
-    const prompt = readPromptFile("riscrittura-traduzione.txt");
+    const systemPrompt = readPromptFile("riscrittura-traduzione.txt");
+    if (!systemPrompt || !systemPrompt.trim()) {
+      throw new Error("Prompt riscrittura-traduzione.txt mancante o vuoto");
+    }
 
-    const r = await openai.chat.completions.create({
-      model: AI_MODEL,
-      temperature: 0,
-      messages: [
-        { role: "system", content: prompt },
-        { role: "user", content: textEffective },
-      ],
+    // qui deve arrivare HTML DOCX (con <p>...</p>)
+    let htmlEffective = textEffective;
+    if (!looksLikeDocxHtml(htmlEffective)) {
+      throw new Error("Riscrittura-traduzione supportata solo su HTML DOCX");
+    }
+
+    const { out } = await runDocxParagraphPipeline({
+      openaiClient: openai,
+      systemPrompt,
+      htmlEffective,
+      modeLabel: "RISCRITTURA_TRADUZIONE",
     });
 
-    return r.choices[0].message.content;
+    return out;
   }
+
 
 
   throw new Error("Mode non supportata");
