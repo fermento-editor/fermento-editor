@@ -215,6 +215,17 @@ function stripTags(html) {
   return html.replace(/<[^>]+>/g, "").trim();
 }
 
+function stripTagsToText(html) {
+  if (!html) return "";
+  return String(html)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\u00a0/g, " ")
+    .trim();
+}
+
+
 function normalizeAiParagraph(p) {
   const s = String(p || "").trim();
   const m = s.match(/<p\b[^>]*>[\s\S]*<\/p>/i);
