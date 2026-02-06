@@ -571,11 +571,7 @@ async function runAiCore(body) {
 
     return output.join("\n");
   }
-
-      // -------- RISCRITTURA / TRADUZIONE (DOCX grandi OK via pipeline 600K) --------
-  if (modeEffective === "riscrittura-traduzione") {
-
-      // -------- TRADUZIONE IT -> EN (testo lungo) --------
+ // -------- TRADUZIONE IT -> EN (testo lungo) --------
   if (modeEffective === "traduzione-it-en") {
     const prompt = readPromptFile("traduzione-it-en.txt");
     if (!prompt || !prompt.trim()) {
@@ -607,7 +603,10 @@ async function runAiCore(body) {
 
     return out.join("\n\n");
   }
+      // -------- RISCRITTURA / TRADUZIONE (DOCX grandi OK via pipeline 600K) --------
+  if (modeEffective === "riscrittura-traduzione") {
 
+     
     const systemPrompt = readPromptFile("riscrittura-traduzione.txt");
     if (!systemPrompt || !systemPrompt.trim()) {
       throw new Error("Prompt riscrittura-traduzione.txt mancante o vuoto");
