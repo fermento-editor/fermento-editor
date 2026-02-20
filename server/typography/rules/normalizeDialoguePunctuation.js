@@ -21,7 +21,7 @@ export function normalizeDialoguePunctuation(html) {
   // <p>-Testo… - disse lui.</p> -> <p>«Testo…» disse lui.</p>
   // Supporta -, – e —
   out = out.replace(
-    /<p>(\s*)([-–—])\s*([\s\S]*?)([.!?…])\s*[-–—]\s+(?=\S)([\s\S]*?)<\/p>/giu,
+    /<p>(\s*)([-–—])\s*([\s\S]*?)([.!?…])\s*[-–—]\s*(?=\S)([\s\S]*?)<\/p>/giu,
     (_m, lead, _dash, speech, punct, after) => {
       const s = String(speech || "").trim();
       const a = String(after || "").trim();
@@ -53,6 +53,10 @@ export function normalizeDialoguePunctuation(html) {
       return `<p>${lead}«${b}»</p>`;
     }
   );
-
+  // 3) Safety: se resta un em/en dash attaccato alla parola, inserisci spazio dopo
+  // "—disse" -> "— disse"
+  out = out.replace(/([—–])(?=\S)/gu, "$1 ");
+  out = out.replace(/—  /g, "— ").replace(/–  /g, "– ");
+  
   return out;
 }
