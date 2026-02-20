@@ -18,7 +18,7 @@ import fs from "fs";
 import fsPromises from "fs/promises";
 import { fileURLToPath } from "url";
 import { v4 as uuidv4 } from "uuid";
-
+import { applyTypography } from "./typography/applyTypography.js";
 dotenv.config();
 
 // ===============================
@@ -234,7 +234,8 @@ function isChapterTitleParagraph(pHtml) {
 function normalizeAiParagraph(p) {
   const s = String(p || "").trim();
   const m = s.match(/<p\b[^>]*>[\s\S]*<\/p>/i);
-  return m ? m[0] : `<p>${s}</p>`;
+  const oneP = m ? m[0] : `<p>${s}</p>`;
+  return applyTypography(oneP);
 }
 
 // ===============================
