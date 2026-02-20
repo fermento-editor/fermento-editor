@@ -34,6 +34,19 @@ export function normalizeDialoguePunctuation(html) {
     }
   );
 
+    // 1b) Se l'AI ha lasciato l'inciso con em/en dash DENTRO le caporali,
+  //     spostalo FUORI: «Testo.» — disse lui. »  -> «Testo.»» disse lui.
+  // Esempio: <p>«Non succederà più — disse lui.»</p> -> <p>«Non succederà più.» disse lui.</p>
+  out = out.replace(
+    /<p>(\s*)«([\s\S]*?)([.!?…])\s*[—–]\s*(?=\S)([\s\S]*?)»\s*<\/p>/giu,
+    (_m, lead, speech, punct, after) => {
+      const s = String(speech || "").trim();
+      const a = String(after || "").trim();
+      if (!s || !a) return _m;
+      return `<p>${lead}«${s}${punct}» ${a}</p>`;
+    }
+  );
+  
   // 2) Paragrafo "dialogo puro" che inizia con dash (- – —)
   // <p>—Ciao.</p> -> <p>«Ciao.»</p>
   // Nota: non tocca paragrafi che contengono già caporali.
@@ -57,6 +70,6 @@ export function normalizeDialoguePunctuation(html) {
   // "—disse" -> "— disse"
   out = out.replace(/([—–])(?=\S)/gu, "$1 ");
   out = out.replace(/—  /g, "— ").replace(/–  /g, "– ");
-  
+
   return out;
 }
