@@ -13,6 +13,12 @@ export function normalizeDialoguePunctuation(html) {
   if (!html) return html;
   let out = String(html);
 
+    // REGOLA ASSOLUTA: nessun trattino lungo nel testo
+  out = out.replace(/[—–]/gu, "-");
+
+    // REGOLA ASSOLUTA: mai virgola dopo caporali
+  out = out.replace(/»\s*,/gu, "»");
+  
   // 0) Sanifica: rimuovi ".-" a fine paragrafo/riga (artefatto tipo "Maddie.-")
   // <p>Testo.-</p> -> <p>Testo.</p>
   out = out.replace(/(\.)\s*-\s*(<\/p>\s*$)/giu, "$1$2");
@@ -34,16 +40,16 @@ export function normalizeDialoguePunctuation(html) {
     }
   );
 
-     // 1b) Se l'AI ha lasciato l'inciso con em/en dash DENTRO le caporali,
-  //     spostalo FUORI: «Testo.» — disse lui.» -> «Testo.»» disse lui.
-  // Esempio: <p>«Non succederà più — disse lui.»</p> -> <p>«Non succederà più.» disse lui.</p>
+     // 1b) Se dentro le caporali c'è un inciso con trattino breve,
+  // spostalo fuori e rimuovi "." o "," prima della chiusura.
+  // Esempio: «Non succederà più - disse lui.» -> «Non succederà più» disse lui.
   out = out.replace(
-    /<p>(\s*)«([\s\S]*?)([.!?…])\s*[—–]\s*(?=\S)([\s\S]*?)»\s*<\/p>/giu,
+    /<p>(\s*)«([\s\S]*?)([.,])?\s*-\s*(?=\S)([\s\S]*?)»\s*<\/p>/giu,
     (_m, lead, speech, punct, after) => {
       const s = String(speech || "").trim();
       const a = String(after || "").trim();
       if (!s || !a) return _m;
-      return `<p>${lead}«${s}${punct}» ${a}</p>`;
+      return `<p>${lead}«${s}» ${a}</p>`;
     }
   );
 
@@ -66,10 +72,7 @@ export function normalizeDialoguePunctuation(html) {
       return `<p>${lead}«${b}»</p>`;
     }
   );
-  // 3) Safety: se resta un em/en dash attaccato alla parola, inserisci spazio dopo
-  // "—disse" -> "— disse"
-  out = out.replace(/([—–])(?=\S)/gu, "$1 ");
-  out = out.replace(/—  /g, "— ").replace(/–  /g, "– ");
+ 
 
   return out;
 }
