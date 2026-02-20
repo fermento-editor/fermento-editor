@@ -233,8 +233,11 @@ function isChapterTitleParagraph(pHtml) {
 
 function normalizeAiParagraph(p) {
   const s = String(p || "").trim();
-  const m = s.match(/<p\b[^>]*>[\s\S]*<\/p>/i);
+
+  // Prendi SOLO il primo <p>...</p> e scarta qualsiasi coda/sporcizia fuori.
+  const m = s.match(/<p\b[^>]*>[\s\S]*?<\/p>/i);
   const oneP = m ? m[0] : `<p>${s}</p>`;
+
   return applyTypography(oneP);
 }
 
