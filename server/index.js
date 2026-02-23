@@ -522,25 +522,52 @@ async function runAiCore(body) {
 
   const textEffective = html || text || "";
 
-  // -------- VALUTAZIONE --------
-  if (modeEffective === "valutazione") { 
-    const prompt = readPromptFile("valutazione-fermento.txt");
-    const chunks = chunkText(textEffective);
-    const out = [];
+ // -------- VALUTAZIONE --------
+if (modeEffective === "valutazione") {
+  const prompt = readPromptFile("valutazione-fermento.txt");
+  const chunks = chunkText(textEffective);
 
-    for (const c of chunks) {
-      const r = await openai.chat.completions.create({
-        model: AI_MODEL,
-        temperature: 0,
-        messages: [
-          { role: "system", content: prompt },
-          { role: "user", content: c },
-        ],
-      });
-      out.push(r.choices[0].message.content);
-    }
-    return out.join("\n\n");
+  // 1) Report parziali (uno per chunk)
+  const partials = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    const c = chunks[i];
+
+    const r = await openai.chat.completions.create({
+      model: AI_MODEL,
+      temperature: 0,
+      messages: [
+        { role: "system", content: prompt },
+        {
+          role: "user",
+          content:
+            `<strong>FASE: ANALISI SEZIONE</strong>\n` +
+            `<p><strong>Sezione:</strong> ${i + 1}/${chunks.length}</p>\n\n` +
+            c,
+        },
+      ],
+    });
+
+    partials.push(r.choices[0].message.content);
   }
+
+  // 2) Sintesi finale (UNA SOLA valutazione definitiva)
+  const joinedPartials =
+    `<strong>FASE: SINTESI FINALE</strong>\n` +
+    `<p>Di seguito i report parziali da aggregare (non ripetere, sintetizza in una sola valutazione definitiva):</p>\n\n` +
+    partials.join("\n\n<p>-----</p>\n\n");
+
+  const finalR = await openai.chat.completions.create({
+    model: AI_MODEL,
+    temperature: 0,
+    messages: [
+      { role: "system", content: prompt },
+      { role: "user", content: joinedPartials },
+    ],
+  });
+
+  return finalR.choices[0].message.content;
+}
 
   // -------- EDITING ORIGINALE --------
   if (modeEffective === "editing-originale") {
